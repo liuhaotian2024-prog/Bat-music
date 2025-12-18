@@ -3,474 +3,370 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bat-music: Quantum Composer</title>
+    <title>Bat-music v6.0</title>
     <style>
-        /* === 视觉：量子网格 === */
+        /* === 极简高对比度风格 (防止渲染错误) === */
         body {
-            font-family: 'Courier New', monospace;
             background: #000;
-            color: #0f0;
+            color: #fff;
             margin: 0;
             height: 100vh;
             display: flex;
             flex-direction: column;
+            font-family: sans-serif;
             overflow: hidden;
         }
 
-        /* 1. 核心舞台：音乐场 */
-        .grid-stage {
+        /* 调试控制台 (如果不幸出错，这里会显示红字) */
+        #debugConsole {
+            position: fixed; top: 0; left: 0; width: 100%; height: 20px;
+            background: #200; color: #f00; font-size: 10px;
+            z-index: 9999; display: none; padding: 2px;
+        }
+
+        /* 1. 示波器 */
+        .stage {
             flex: 1;
             position: relative;
-            background: #050505;
-            background-image: 
-                linear-gradient(rgba(0, 255, 0, 0.1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 255, 0, 0.1) 1px, transparent 1px);
-            background-size: 40px 40px;
-            overflow: hidden;
+            background: #111;
+            border-bottom: 2px solid #333;
         }
         canvas { width: 100%; height: 100%; display: block; }
 
-        /* 顶部信息 */
-        .top-hud {
+        .center-status {
             position: absolute;
-            top: 0; left: 0; width: 100%;
-            padding: 15px;
-            box-sizing: border-box;
-            display: flex;
-            justify-content: space-between;
-            pointer-events: none;
-            text-shadow: 0 0 5px #0f0;
-            z-index: 10;
-        }
-        .beat-indicator {
-            width: 10px; height: 10px; background: #333; border-radius: 50%;
-        }
-        .beat-indicator.active { background: #0f0; box-shadow: 0 0 10px #0f0; }
-
-        /* 乐理参数 */
-        .theory-hud {
-            position: absolute;
-            bottom: 15px; left: 15px;
-            font-size: 10px;
-            color: #0a0;
-            background: rgba(0,0,0,0.8);
-            padding: 5px;
-            border: 1px solid #040;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
             pointer-events: none;
         }
+        .timer { font-size: 40px; font-weight: bold; font-family: monospace; }
+        .status-text { font-size: 14px; color: #888; margin-top: 10px; }
 
-        /* 2. 控制台 */
+        /* 2. 控制区 */
         .controls {
-            background: #111;
+            height: 220px;
+            background: #000;
             padding: 20px;
-            padding-bottom: env(safe-area-inset-bottom, 20px);
-            border-top: 2px solid #040;
+            box-sizing: border-box;
             display: flex;
             flex-direction: column;
             gap: 15px;
         }
 
-        /* 播放器提示 */
-        .download-tip {
-            font-size: 12px; color: #888; text-align: center; display: none; margin-bottom: 5px;
+        /* 播放器 */
+        #playerLayer {
+            height: 0; opacity: 0; overflow: hidden; transition: all 0.3s;
+            background: #222; border-radius: 8px;
         }
+        #playerLayer.show { height: 50px; opacity: 1; border: 1px solid #444; }
+        audio { width: 100%; height: 100%; outline: none; }
 
-        /* 2x2 按钮网格 */
-        .btn-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-        }
-
+        /* 按钮组 */
+        .btn-row { display: flex; gap: 15px; flex: 1; }
+        
         button {
-            background: #000;
-            color: #0f0;
-            border: 1px solid #0f0;
-            padding: 15px;
-            font-family: inherit;
+            flex: 1;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
             font-weight: bold;
-            font-size: 14px;
             cursor: pointer;
-            text-transform: uppercase;
-            transition: all 0.1s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
+            transition: opacity 0.2s;
         }
-        button:active { background: #0f0; color: #000; }
-        
-        /* 禁用状态优化：不再全黑，而是暗绿色 */
-        button:disabled { 
-            border-color: #333; 
-            color: #444; 
-            background: #080808;
-            pointer-events: none; 
+        button:active { opacity: 0.7; }
+        button:disabled { background: #222 !important; color: #555 !important; }
+
+        /* 颜色定义 */
+        .btn-rec { background: #007aff; color: #fff; }
+        .btn-stop { background: #ff3b30; color: #fff; }
+        .btn-save { background: #34c759; color: #000; }
+        .btn-reset { background: #333; color: #ccc; }
+
+        /* 微信遮罩 */
+        #wxMask {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 1000;
+            display: none; justify-content: center; align-items: center; text-align: center;
         }
-
-        /* 特殊按钮色 */
-        .btn-stop { border-color: #f00; color: #f00; }
-        .btn-stop:active { background: #f00; color: #fff; }
-        .btn-stop:disabled { border-color: #333; color: #400; }
-        
-        .btn-share { border-color: #0af; color: #0af; }
-        .btn-share:active { background: #0af; color: #000; }
-        .btn-share:disabled { border-color: #333; color: #004; }
-
     </style>
 </head>
 <body>
+    
+    <div id="debugConsole"></div>
 
-    <div class="grid-stage">
-        <canvas id="canvas"></canvas>
-        
-        <div class="top-hud">
-            <div>QUANTUM COMPOSER v5.1</div>
-            <div class="beat-indicator" id="beatLed"></div>
+    <div id="wxMask" onclick="this.style.display='none'">
+        <div style="padding: 20px;">
+            <h2 style="color:#0f0">微信无法直接分享</h2>
+            <p style="color:#ccc">请点击 <strong>存储文件</strong><br>然后长按选择“保存”<br>或点击右上角 ... 在浏览器打开</p>
         </div>
+    </div>
 
-        <div class="theory-hud">
-            <div>Y* FIELD: C-MINOR JAZZ</div>
-            <div>LAYER: <span id="layerName">BASE</span></div>
-            <div>EVENTS: <span id="eventCount">0</span></div>
+    <div class="stage">
+        <canvas id="canvas"></canvas>
+        <div class="center-status">
+            <div class="timer" id="timer">00:00</div>
+            <div class="status-text" id="statusText">READY</div>
         </div>
     </div>
 
     <div class="controls">
-        <div class="download-tip" id="dlTip">⚠️ 微信用户请点击“存储”后选择“保存到文件”</div>
-        
-        <audio id="hiddenPlayer" style="display:none"></audio>
+        <div id="playerLayer">
+            <audio id="audioPlayer" controls playsinline></audio>
+        </div>
 
-        <div class="btn-grid">
-            <button id="btnStart" onclick="startComposition()">
-                <span>▶ 叠加录制</span>
-            </button>
-            <button id="btnStop" class="btn-stop" onclick="stopComposition()" disabled>
-                <span>⏹ 生成乐曲</span>
-            </button>
-            <button id="btnSave" onclick="saveFile()" disabled>
-                <span>💾 存储文件</span>
-            </button>
-            <button id="btnReset" class="btn-share" onclick="resetAll()">
-                <span>🔄 清空重来</span>
-            </button>
+        <div class="btn-row">
+            <button id="btnStart" class="btn-rec" onclick="app.start()">● 开始录制</button>
+            <button id="btnStop" class="btn-stop" onclick="app.stop()" disabled>■ 停止</button>
+        </div>
+        <div class="btn-row">
+            <button id="btnSave" class="btn-save" onclick="app.save()" disabled>💾 存储文件</button>
+            <button id="btnReset" class="btn-reset" onclick="app.reset()">🔄 重置</button>
         </div>
     </div>
 
     <script>
-        // === 核心变量 ===
-        let audioCtx;
-        let isRunning = false;
-        let isRecording = false;
-        let wakeLock = null;
+        // === 全局错误捕捉 (防止崩了没人知道) ===
+        window.onerror = function(msg, source, lineno) {
+            let el = document.getElementById('debugConsole');
+            el.style.display = 'block';
+            el.innerText = `Error: ${msg} (Line ${lineno})`;
+            return false;
+        };
 
-        // 音序器 (The Sequencer)
-        let bpm = 110;
-        let nextNoteTime = 0;
-        let noteQueue = []; 
-        let beatCount = 0;
+        // === 应用命名空间 (防止变量污染) ===
+        const app = {
+            // 状态
+            isRecording: false,
+            ctx: null,
+            mediaRecorder: null,
+            chunks: [],
+            blobUrl: null,
+            timerInt: null,
+            startTime: 0,
+            
+            // 音频节点
+            dest: null,
+            mic: null,
+            analyser: null,
+            osc: null,
+            gain: null,
+            
+            // 乐理常量 (C Minor Pentatonic)
+            scale: [130.8, 155.6, 174.6, 196.0, 233.1, 261.6, 311.1, 392.0],
 
-        // 录音机
-        let destNode, mediaRecorder;
-        let chunks = [];
-        let blobUrl = null;
+            // 1. 初始化引擎
+            init: async function() {
+                try {
+                    // 兼容 AudioContext
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (!this.ctx) this.ctx = new AudioContext();
+                    if (this.ctx.state === 'suspended') await this.ctx.resume();
 
-        // 场叠加层 (Loops)
-        let patternLayers = []; 
-        let currentLayer = [];
-        
-        // 乐理：泛函 Y*
-        const SCALE = [130.81, 155.56, 174.61, 185.00, 196.00, 233.08, 261.63, 311.13, 349.23, 392.00];
+                    // 麦克风
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    this.mic = this.ctx.createMediaStreamSource(stream);
+                    this.analyser = this.ctx.createAnalyser();
+                    this.analyser.fftSize = 1024;
+                    this.mic.connect(this.analyser);
 
-        // 信号分析
-        let analyser, micSource;
-        let lastEnergy = 0;
-        let triggerCooldown = 0;
+                    // 合成器 (振荡器 + 增益)
+                    this.osc = this.ctx.createOscillator();
+                    this.osc.type = 'sine';
+                    this.gain = this.ctx.createGain();
+                    this.gain.gain.value = 0;
+                    
+                    this.osc.connect(this.gain);
+                    this.osc.start();
 
-        // 绘图
-        let canvas, ctx, w, h;
-        let visuals = [];
+                    // 总线 (用于录音和回放)
+                    this.dest = this.ctx.createMediaStreamDestination();
+                    
+                    // 路由：合成器 -> (耳朵 + 录音机)
+                    this.gain.connect(this.ctx.destination);
+                    this.gain.connect(this.dest);
 
-        // === 1. 启动与叠加 (Layering) ===
-        async function startComposition() {
-            try {
-                // 初始化 Audio Context
-                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                if (audioCtx.state === 'suspended') await audioCtx.resume();
+                    // 启动视觉和逻辑循环
+                    this.loop();
+                    return true;
+                } catch (e) {
+                    alert("麦克风启动失败: " + e.message);
+                    return false;
+                }
+            },
+
+            // 2. 开始录制
+            start: async function() {
+                if (this.isRecording) return;
                 
-                // 唤醒锁
-                if ('wakeLock' in navigator) { try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e){} }
+                // 确保引擎启动
+                const ready = await this.init();
+                if (!ready) return;
 
-                // 如果是第一次启动，建立基础
-                if (!isRunning) {
-                    await initAudioChain();
-                    // 启动时钟
-                    nextNoteTime = audioCtx.currentTime + 0.1;
-                    requestAnimationFrame(scheduler);
-                    
-                    // 启动录音机 (录制总输出)
-                    startMasterRecorder();
-                    
-                    isRunning = true;
+                this.isRecording = true;
+                this.chunks = [];
+                
+                // 兼容 Safari 的录音格式
+                let mime = 'audio/webm';
+                if (!MediaRecorder.isTypeSupported(mime)) mime = 'audio/mp4';
+                
+                try {
+                    this.mediaRecorder = new MediaRecorder(this.dest.stream, { mimeType: mime });
+                } catch(e) {
+                    // 如果指定格式失败，让浏览器自己选
+                    this.mediaRecorder = new MediaRecorder(this.dest.stream);
                 }
 
-                // 开启"录入模式"
-                isRecording = true;
-                currentLayer = []; // 准备新的一层
+                this.mediaRecorder.ondataavailable = e => {
+                    if(e.data.size > 0) this.chunks.push(e.data);
+                };
+
+                this.mediaRecorder.start();
+
+                // 计时器
+                this.startTime = Date.now();
+                this.timerInt = setInterval(() => this.updateTimer(), 1000);
+
+                // UI 更新
+                this.updateUI('recording');
+            },
+
+            // 3. 停止 (暴力强制版)
+            stop: function() {
+                this.isRecording = false;
+                clearInterval(this.timerInt);
                 
-                // UI 切换
-                document.getElementById('btnStart').innerText = "🔴 正在叠加...";
-                document.getElementById('btnStart').disabled = true;
-                document.getElementById('btnStop').disabled = false;
-                document.getElementById('layerName').innerText = `LAYER ${patternLayers.length + 1}`;
+                // 物理静音
+                if(this.gain) this.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
 
-            } catch (e) {
-                alert("启动失败: " + e);
-            }
-        }
-
-        // === 2. 停止与生成 (Compose) ===
-        function stopComposition() {
-            isRecording = false;
-            
-            // 将当前录入的事件合并到主循环中
-            if (currentLayer.length > 0) {
-                patternLayers.push(currentLayer);
-            }
-
-            // 停止总录音机
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-                mediaRecorder.stop();
-            }
-
-            // UI 切换
-            document.getElementById('btnStart').innerText = "▶ 再次叠加";
-            document.getElementById('btnStart').disabled = false;
-            document.getElementById('btnStop').disabled = true;
-            document.getElementById('btnSave').disabled = false;
-            
-            document.getElementById('layerName').innerText = "PLAYBACK";
-        }
-
-        // === 3. 音频链与录音 ===
-        async function initAudioChain() {
-            // 麦克风输入 (仅用于触发，不直接听到)
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            micSource = audioCtx.createMediaStreamSource(stream);
-            analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 512;
-            micSource.connect(analyser);
-
-            // 总线 (Master Bus)
-            destNode = audioCtx.createMediaStreamDestination();
-            
-            // 绘图
-            canvas = document.getElementById('canvas');
-            ctx = canvas.getContext('2d');
-            resize();
-            window.addEventListener('resize', resize);
-            drawLoop();
-            analyzeLoop(); // 启动信号监听
-        }
-
-        function startMasterRecorder() {
-            chunks = [];
-            // 兼容性
-            let mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-            mediaRecorder = new MediaRecorder(destNode.stream, { mimeType: mime });
-            
-            mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-            
-            mediaRecorder.onstop = () => {
-                let blob = new Blob(chunks, { type: mediaRecorder.mimeType });
-                if (blobUrl) URL.revokeObjectURL(blobUrl);
-                blobUrl = URL.createObjectURL(blob);
-            };
-            
-            mediaRecorder.start();
-        }
-
-        // === 4. 信号切片与触发 (The Slicer) ===
-        function analyzeLoop() {
-            requestAnimationFrame(analyzeLoop);
-            if (!isRecording) return;
-
-            let data = new Uint8Array(analyser.frequencyBinCount);
-            analyser.getByteFrequencyData(data);
-
-            // 计算瞬时能量
-            let sum = 0;
-            let weightedSum = 0; // 用于计算质心
-            for(let i=0; i<data.length; i++) {
-                sum += data[i];
-                weightedSum += i * data[i];
-            }
-            let energy = sum / data.length;
-            let centroid = sum > 0 ? weightedSum / sum : 0;
-
-            // 瞬态检测
-            if (triggerCooldown > 0) triggerCooldown--;
-
-            if (energy > 20 && (energy - lastEnergy) > 5 && triggerCooldown <= 0) {
-                // >>> 触发事件 <<<
-                
-                // 1. 泛函计算 Y* (确定乐器和音高)
-                let type, note;
-                
-                if (centroid < 20) {
-                    type = 'kick'; // 低沉呼噜 -> 鼓
-                    note = 50;
-                } else if (centroid < 50) {
-                    type = 'bass'; // 中频哼唱 -> 贝斯
-                    note = SCALE[Math.floor((energy/100)*4)]; // 低音区
+                // 强制停止录音机
+                if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+                    this.mediaRecorder.stop();
+                    
+                    this.mediaRecorder.onstop = () => {
+                        const blob = new Blob(this.chunks, { type: this.mediaRecorder.mimeType });
+                        if (this.blobUrl) URL.revokeObjectURL(this.blobUrl);
+                        this.blobUrl = URL.createObjectURL(blob);
+                        
+                        // 加载播放器
+                        let p = document.getElementById('audioPlayer');
+                        p.src = this.blobUrl;
+                        
+                        this.updateUI('stopped');
+                    };
                 } else {
-                    type = 'synth'; // 高频怪声 -> 旋律
-                    let idx = Math.floor((energy/80) * SCALE.length);
-                    note = SCALE[Math.min(idx, SCALE.length-1)];
+                    // 如果录音机本来就没动，也要重置UI
+                    this.updateUI('stopped');
+                }
+            },
+
+            // 4. 存储 (微信兼容版)
+            save: function() {
+                // 检测是否微信
+                const isWx = /MicroMessenger/i.test(navigator.userAgent);
+                if (isWx) {
+                    document.getElementById('wxMask').style.display = 'flex';
+                    return; // 微信里不能直接调用下载，只能提示
                 }
 
-                // 2. 立即演奏 (Feedback)
-                playNote(type, note, audioCtx.currentTime);
-                
-                // 3. 记录到层 (Record)
-                currentLayer.push({ type: type, note: note, time: audioCtx.currentTime });
+                if (!this.blobUrl) return;
+                const a = document.createElement('a');
+                a.href = this.blobUrl;
+                a.download = 'Bat-music_' + Date.now() + '.webm';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            },
 
-                // 冷却
-                triggerCooldown = 8; 
-                
-                // 视觉
-                visuals.push({x: Math.random()*w, y: h/2, color: type=='kick'?'#f00':(type=='bass'?'#00f':'#0f0'), life: 1});
-                document.getElementById('eventCount').innerText = parseInt(document.getElementById('eventCount').innerText)+1;
+            reset: function() {
+                location.reload(); // 最彻底的重置
+            },
+
+            // 5. 核心逻辑循环 (AI 作曲)
+            loop: function() {
+                requestAnimationFrame(() => this.loop());
+                if (!this.isRecording) return;
+
+                const data = new Uint8Array(this.analyser.frequencyBinCount);
+                this.analyser.getByteFrequencyData(data);
+
+                // 计算能量
+                let sum = 0; for(let i=0; i<data.length; i++) sum+=data[i];
+                let energy = sum / data.length;
+
+                // 简单的门限逻辑
+                const now = this.ctx.currentTime;
+                if (energy > 15) {
+                    // 有声音 -> 映射音高
+                    let idx = Math.floor((energy / 60) * this.scale.length);
+                    idx = Math.min(idx, this.scale.length - 1);
+                    let freq = this.scale[idx];
+
+                    this.osc.frequency.setTargetAtTime(freq, now, 0.1);
+                    this.gain.gain.setTargetAtTime(0.5, now, 0.1);
+                    
+                    this.draw(energy, '#0f0');
+                } else {
+                    // 没声音 -> 静音
+                    this.gain.gain.setTargetAtTime(0, now, 0.2);
+                    this.draw(energy, '#333');
+                }
+            },
+
+            // 绘图
+            draw: function(energy, color) {
+                const c = document.getElementById('canvas');
+                const cx = c.getContext('2d');
+                // 适配高清屏
+                if (c.width !== c.offsetWidth) {
+                    c.width = c.offsetWidth;
+                    c.height = c.offsetHeight;
+                }
+
+                cx.fillStyle = 'rgba(0,0,0,0.1)';
+                cx.fillRect(0, 0, c.width, c.height);
+
+                let r = 50 + energy * 2;
+                cx.beginPath();
+                cx.arc(c.width/2, c.height/2, r, 0, Math.PI*2);
+                cx.strokeStyle = color;
+                cx.lineWidth = 5;
+                cx.stroke();
+            },
+
+            updateTimer: function() {
+                let s = Math.floor((Date.now() - this.startTime) / 1000);
+                let m = Math.floor(s/60).toString().padStart(2,'0');
+                s = (s%60).toString().padStart(2,'0');
+                document.getElementById('timer').innerText = `${m}:${s}`;
+            },
+
+            updateUI: function(state) {
+                const btnStart = document.getElementById('btnStart');
+                const btnStop = document.getElementById('btnStop');
+                const btnSave = document.getElementById('btnSave');
+                const playerLayer = document.getElementById('playerLayer');
+                const statusText = document.getElementById('statusText');
+
+                if (state === 'recording') {
+                    btnStart.disabled = true;
+                    btnStop.disabled = false;
+                    btnStop.style.opacity = '1';
+                    btnSave.disabled = true;
+                    playerLayer.classList.remove('show');
+                    statusText.innerText = "RECORDING (录音中)...";
+                    statusText.style.color = "#f00";
+                } else if (state === 'stopped') {
+                    btnStart.disabled = false;
+                    btnStart.innerText = "● 继续录制";
+                    btnStop.disabled = true;
+                    btnSave.disabled = false;
+                    playerLayer.classList.add('show');
+                    statusText.innerText = "COMPLETED (已完成)";
+                    statusText.style.color = "#0f0";
+                }
             }
-
-            lastEnergy = energy;
-        }
-
-        // === 5. 乐器生成器 (Instrument Synthesis) ===
-        function playNote(type, freq, time) {
-            let master = audioCtx.createGain();
-            master.gain.value = 0.5;
-            master.connect(audioCtx.destination);
-            master.connect(destNode);
-
-            if (type === 'kick') {
-                // 808 Kick
-                let osc = audioCtx.createOscillator();
-                let gain = audioCtx.createGain();
-                osc.connect(gain);
-                gain.connect(master);
-                
-                osc.frequency.setValueAtTime(150, time);
-                osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
-                gain.gain.setValueAtTime(1, time);
-                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
-                
-                osc.start(time);
-                osc.stop(time + 0.5);
-
-            } else if (type === 'bass') {
-                // FM Bass
-                let osc = audioCtx.createOscillator();
-                osc.type = 'triangle';
-                osc.frequency.value = freq / 2; // 下沉八度
-                
-                let gain = audioCtx.createGain();
-                gain.connect(master);
-                osc.connect(gain);
-
-                gain.gain.setValueAtTime(0.6, time);
-                gain.gain.setTargetAtTime(0, time, 0.2);
-                
-                osc.start(time);
-                osc.stop(time + 0.5);
-
-            } else if (type === 'synth') {
-                // Pluck Synth
-                let osc = audioCtx.createOscillator();
-                osc.type = 'sawtooth';
-                osc.frequency.value = freq;
-                
-                let filter = audioCtx.createBiquadFilter();
-                filter.type = 'lowpass';
-                filter.Q.value = 5;
-                filter.frequency.setValueAtTime(200, time);
-                filter.frequency.linearRampToValueAtTime(2000, time+0.05);
-                filter.frequency.linearRampToValueAtTime(200, time+0.2);
-
-                let gain = audioCtx.createGain();
-                gain.gain.setValueAtTime(0, time);
-                gain.gain.linearRampToValueAtTime(0.4, time+0.02);
-                gain.gain.exponentialRampToValueAtTime(0.01, time+0.4);
-
-                osc.connect(filter);
-                filter.connect(gain);
-                gain.connect(master);
-                
-                osc.start(time);
-                osc.stop(time + 0.4);
-            }
-        }
-
-        // === 6. 时钟调度 ===
-        function scheduler() {
-            let now = audioCtx.currentTime;
-            if (now >= nextNoteTime) {
-                beatCount++;
-                let led = document.getElementById('beatLed');
-                led.classList.add('active');
-                setTimeout(()=>led.classList.remove('active'), 100);
-                nextNoteTime += 60.0 / bpm;
-            }
-            requestAnimationFrame(scheduler);
-        }
-
-        // === 7. 存储与分享 ===
-        function saveFile() {
-            if (!blobUrl) return;
-            let a = document.createElement('a');
-            a.href = blobUrl;
-            let t = new Date().toISOString().slice(11,19).replace(/:/g,'');
-            a.download = `Bat_Quantum_${t}.webm`; 
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            
-            // 显示提示
-            document.getElementById('dlTip').style.display = 'block';
-        }
-
-        function resetAll() {
-            if(confirm("确定清空所有音轨吗？")) {
-                location.reload();
-            }
-        }
-
-        // === 绘图 ===
-        function resize() {
-            w = canvas.width = canvas.parentElement.clientWidth;
-            h = canvas.height = canvas.parentElement.clientHeight;
-        }
-
-        function drawLoop() {
-            requestAnimationFrame(drawLoop);
-            if(!ctx) return;
-            ctx.clearRect(0,0,w,h);
-            
-            // 绘制网格线移动
-            let offset = (Date.now() / 20) % 40;
-            
-            for(let i=visuals.length-1; i>=0; i--) {
-                let v = visuals[i];
-                ctx.beginPath();
-                ctx.arc(v.x, v.y, 20 * v.life, 0, Math.PI*2);
-                ctx.strokeStyle = v.color;
-                ctx.lineWidth = 2;
-                ctx.stroke();
-                v.life -= 0.05;
-                if(v.life <= 0) visuals.splice(i,1);
-            }
-        }
-
+        };
     </script>
 </body>
 </html>
