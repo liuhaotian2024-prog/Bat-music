@@ -1,414 +1,338 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bat-music: Symphony</title>
-    <style>
-        body { background: #000; color: #d4af37; margin: 0; height: 100vh; display: flex; flex-direction: column; font-family: 'Times New Roman', serif; overflow: hidden; }
-        
-        /* 错误提示 */
-        #debug { position: fixed; top: 0; left: 0; background: #500; color: #fff; font-size: 10px; z-index: 999; display: none; }
+/* ========== 0. 全局主题与布局 ========== */
 
-        /* 1. 舞台：金色大厅风格 */
-        .stage {
-            flex: 1; position: relative; background: #050505;
-            background-image: radial-gradient(circle at center, #222 0%, #000 100%);
-        }
-        canvas { width: 100%; height: 100%; display: block; }
-        
-        .title {
-            position: absolute; top: 20px; width: 100%; text-align: center;
-            font-size: 14px; letter-spacing: 3px; color: #888; pointer-events: none;
-        }
-        .main-text {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            text-align: center; pointer-events: none;
-        }
-        .timer { font-size: 48px; font-weight: bold; color: #d4af37; text-shadow: 0 0 20px #d4af37; }
-        .status { font-size: 14px; margin-top: 10px; color: #666; font-style: italic; }
+:root {
+    --bg-main: #050608;
+    --bg-stage: #111218;
+    --bg-panel: #050509;
+    --bg-panel-soft: #11141c;
+    --border-soft: #222534;
+    --accent-primary: #007aff;
+    --accent-record: #ff3b30;
+    --accent-ok: #34c759;
+    --accent-warn: #f5a623;
+    --text-main: #f5f5f5;
+    --text-muted: #8c8f98;
+    --radius-lg: 10px;
+    --radius-sm: 6px;
+}
 
-        /* 2. 控制台 */
-        .controls {
-            background: #111; padding: 20px; border-top: 1px solid #333;
-            display: flex; flex-direction: column; gap: 15px;
-        }
-        .player-box {
-            height: 0; overflow: hidden; transition: 0.3s; background: #222; border-radius: 4px;
-        }
-        .player-box.show { height: 50px; border: 1px solid #444; }
-        audio { width: 100%; height: 100%; }
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
 
-        .btn-row { display: flex; gap: 15px; }
-        button {
-            flex: 1; padding: 18px; border: 1px solid #333; background: #000;
-            color: #888; font-family: inherit; font-size: 14px; font-weight: bold;
-            text-transform: uppercase; letter-spacing: 1px; cursor: pointer;
-            transition: 0.2s;
-        }
-        button:active { background: #222; }
-        button:disabled { opacity: 0.3; pointer-events: none; }
+/* 整个 Bat-music 应用容器 */
+.bat-app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
 
-        /* 激活色 */
-        .btn-start { border-color: #d4af37; color: #d4af37; }
-        .btn-start:active { background: #d4af37; color: #000; }
-        
-        .btn-stop { border-color: #b00; color: #b00; }
-        .btn-stop:active { background: #b00; color: #fff; }
+/* ========== 1. 调试控制台 ========== */
 
-        .btn-save { border-color: #fff; color: #fff; }
+#debugConsole {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    min-height: 20px;
+    max-height: 60px;
+    background: #200;
+    color: #ff6b6b;
+    font-size: 10px;
+    font-family: monospace;
+    z-index: 999; /* 避免压过微信遮罩 */
+    display: none;
+    padding: 2px 6px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
 
-        /* 微信遮罩 */
-        #wxMask {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.95); z-index: 1000; display: none;
-            justify-content: center; align-items: center; text-align: center;
-        }
-    </style>
-</head>
-<body>
+/* ========== 2. 示波器 + BWL 层视图 ========== */
 
-    <div id="debug"></div>
+/* 上半部分：示波器区域（L0 波形 + L1 词元条等） */
+.stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 180px;
+    background: radial-gradient(circle at top, #1a1c24 0, var(--bg-stage) 55%);
+    border-bottom: 1px solid var(--border-soft);
+    overflow: hidden;
+}
 
-    <div id="wxMask" onclick="this.style.display='none'">
-        <div>
-            <h2 style="color:#d4af37">保存乐曲</h2>
-            <p style="color:#999; line-height:1.8">
-                微信不支持直接下载。<br>
-                请点击 <strong>存储文件</strong> 后<br>
-                长按播放器选择“保存视频/音频”<br>
-                或点击右上角 ... 在浏览器打开
-            </p>
-        </div>
-    </div>
+/* 建议为主画布加类 .wave-canvas，而不是全局 canvas */
+.wave-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
 
-    <div class="stage">
-        <canvas id="canvas"></canvas>
-        <div class="title">BAT-MUSIC SYMPHONY</div>
-        <div class="main-text">
-            <div class="timer" id="timer">00:00</div>
-            <div class="status" id="status">PRESS START</div>
-        </div>
-    </div>
+/* 中央状态（计时 + 流程提示） */
+.center-status {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+}
 
-    <div class="controls">
-        <div class="player-box" id="playerBox">
-            <audio id="audioPlayer" controls playsinline></audio>
-        </div>
-        <div class="btn-row">
-            <button id="btnStart" class="btn-start" onclick="app.start()">▶ 开始交响</button>
-            <button id="btnStop" class="btn-stop" onclick="app.stop()" disabled>■ 停止生成</button>
-        </div>
-        <div class="btn-row">
-            <button id="btnSave" class="btn-save" onclick="app.save()" disabled>💾 存储文件</button>
-            <button onclick="location.reload()">🔄 重置</button>
-        </div>
-    </div>
+.timer {
+    font-size: 40px;
+    font-weight: 600;
+    font-family: monospace;
+    letter-spacing: 0.06em;
+}
 
-    <script>
-        // 错误捕捉
-        window.onerror = function(msg, url, line) {
-            let d = document.getElementById('debug');
-            d.style.display = 'block';
-            d.innerText = `Error: ${msg} (Line ${line})`;
-        };
+.status-text {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 8px;
+}
 
-        const app = {
-            ctx: null,
-            isRecording: false,
-            mediaRecorder: null,
-            chunks: [],
-            blobUrl: null,
-            timer: null,
-            startTime: 0,
-            
-            // 音频节点
-            dest: null,
-            mic: null,
-            analyser: null,
-            masterGain: null,
+/* 状态小标签：录制中 / 词元化 / CIEU / 合成中… */
+.status-badges {
+    position: absolute;
+    left: 16px;
+    top: 14px;
+    display: flex;
+    gap: 6px;
+    font-size: 10px;
+}
 
-            // 交响乐团组件
-            strings: [], // 弦乐群
-            bass: null,
-            drums: null, // 战鼓
-            reverb: null, // 大厅混响
+.status-badge {
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: var(--text-muted);
+}
 
-            // 乐理：C Minor Harmonic (史诗感)
-            // C3, D3, Eb3, F3, G3, Ab3, B3, C4
-            scale: [130.8, 146.8, 155.6, 174.6, 196.0, 207.7, 246.9, 261.6],
-            nextNoteTime: 0,
-            beatCount: 0,
+.status-badge--active {
+    color: #fff;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 12px rgba(0,122,255,0.35);
+}
 
-            init: async function() {
-                const AC = window.AudioContext || window.webkitAudioContext;
-                this.ctx = new AC();
-                if(this.ctx.state === 'suspended') await this.ctx.resume();
+/* BWL 层标签（L0~L4）可叠加在底部 */
+.bwl-layers {
+    position: absolute;
+    left: 16px;
+    bottom: 12px;
+    display: flex;
+    gap: 4px;
+    font-size: 9px;
+}
 
-                // 混响 (模拟金色大厅)
-                this.reverb = await this.createReverb();
+.bwl-layer-tag {
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(8,8,12,0.7);
+    border: 1px solid rgba(255,255,255,0.06);
+    color: var(--text-muted);
+}
 
-                // 麦克风
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                this.mic = this.ctx.createMediaStreamSource(stream);
-                this.analyser = this.ctx.createAnalyser();
-                this.analyser.fftSize = 1024;
-                this.mic.connect(this.analyser);
+.bwl-layer-tag--focus {
+    border-color: var(--accent-ok);
+    color: #e0ffe5;
+}
 
-                // 总线
-                this.dest = this.ctx.createMediaStreamDestination();
-                this.masterGain = this.ctx.createGain();
-                this.masterGain.gain.value = 0.8;
-                
-                // 混响接入总线
-                this.reverb.connect(this.masterGain);
-                this.masterGain.connect(this.ctx.destination);
-                this.masterGain.connect(this.dest);
+/* ========== 3. CIEU 因果面板（预留） ========== */
 
-                // 启动视觉和逻辑
-                this.loop();
-                this.clock(); // 启动节奏时钟
-                return true;
-            },
+.cieu-panel {
+    position: relative;
+    padding: 10px 16px 6px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border-soft);
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+    font-size: 11px;
+    box-sizing: border-box;
+}
 
-            // 创建卷积混响 (Convolution Reverb) - 制造大厅感的核心
-            createReverb: async function() {
-                let convolver = this.ctx.createConvolver();
-                // 生成一个简单的脉冲响应
-                let rate = this.ctx.sampleRate;
-                let length = rate * 2.0; // 2秒混响
-                let decay = 2.0;
-                let buffer = this.ctx.createBuffer(2, length, rate);
-                for (let c = 0; c < 2; c++) {
-                    let channel = buffer.getChannelData(c);
-                    for (let i = 0; i < length; i++) {
-                        // 指数衰减的白噪声
-                        channel[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
-                    }
-                }
-                convolver.buffer = buffer;
-                
-                // 混响增益
-                let gain = this.ctx.createGain();
-                gain.gain.value = 0.6; // 60% 湿声
-                convolver.connect(gain);
-                return gain;
-            },
+.cieu-item {
+    background: var(--bg-panel-soft);
+    border-radius: var(--radius-sm);
+    padding: 4px 6px;
+    border: 1px solid rgba(255,255,255,0.06);
+    min-height: 32px;
+    box-sizing: border-box;
+}
 
-            start: async function() {
-                if(this.isRecording) return;
-                try {
-                    await this.init();
-                    this.isRecording = true;
-                    this.chunks = [];
+.cieu-item__label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
 
-                    // 录音机兼容性
-                    let mime = 'audio/webm';
-                    if(!MediaRecorder.isTypeSupported(mime)) mime = 'audio/mp4';
-                    try {
-                        this.mediaRecorder = new MediaRecorder(this.dest.stream, {mimeType: mime});
-                    } catch(e) {
-                        this.mediaRecorder = new MediaRecorder(this.dest.stream);
-                    }
+.cieu-item__value {
+    font-size: 11px;
+    color: #f0f0f0;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 
-                    this.mediaRecorder.ondataavailable = e => { if(e.data.size>0) this.chunks.push(e.data); };
-                    this.mediaRecorder.start();
+/* 高亮当前被优化的目标 Y*、奖励 r */
+.cieu-item--target {
+    border-color: var(--accent-primary);
+}
 
-                    // UI
-                    this.startTime = Date.now();
-                    this.timer = setInterval(()=>this.updateTimer(), 1000);
-                    this.updateUI('rec');
+.cieu-item--reward {
+    border-color: var(--accent-ok);
+}
 
-                } catch(e) {
-                    alert("启动失败: " + e.message);
-                }
-            },
+/* ========== 4. 控制区（录制 + 目标选择 + 播放） ========== */
 
-            stop: function() {
-                this.isRecording = false;
-                clearInterval(this.timer);
-                
-                // 停止所有声音
-                if(this.masterGain) this.masterGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.5);
+.controls {
+    flex: 0 0 auto;
+    background: var(--bg-panel);
+    padding: 12px 16px 18px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
 
-                if(this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-                    this.mediaRecorder.stop();
-                    this.mediaRecorder.onstop = () => {
-                        let blob = new Blob(this.chunks, {type: this.mediaRecorder.mimeType});
-                        if(this.blobUrl) URL.revokeObjectURL(this.blobUrl);
-                        this.blobUrl = URL.createObjectURL(blob);
-                        let p = document.getElementById('audioPlayer');
-                        p.src = this.blobUrl;
-                        this.updateUI('stop');
-                    }
-                } else {
-                    this.updateUI('stop');
-                }
-            },
+/* 4.1 目标风格 / Y* 选项 */
+.target-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 4px;
+}
 
-            save: function() {
-                if(/MicroMessenger/i.test(navigator.userAgent)) {
-                    document.getElementById('wxMask').style.display = 'flex';
-                    return;
-                }
-                if(!this.blobUrl) return;
-                let a = document.createElement('a');
-                a.href = this.blobUrl;
-                a.download = `Bat-Symphony_${Date.now()}.webm`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-            },
+.target-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-right: 4px;
+}
 
-            // === 核心：虚拟管弦乐团 ===
-            
-            // 1. 超级锯齿波 (SuperSaw) - 模拟弦乐群
-            playStrings: function(freq, vol) {
-                let now = this.ctx.currentTime;
-                // 3个振荡器微走调，制造"一群人拉琴"的感觉
-                let detunes = [-10, 0, 10]; 
-                
-                let env = this.ctx.createGain();
-                env.gain.value = 0;
-                env.connect(this.reverb); // 进混响
-                env.connect(this.ctx.destination); // 干声 (保持清晰度)
-                
-                // 包络：慢起慢落 (Legato)
-                env.gain.linearRampToValueAtTime(vol * 0.3, now + 0.5);
-                env.gain.setTargetAtTime(0, now + 0.6, 0.5);
+.target-chip {
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(12,14,20,0.85);
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+}
 
-                detunes.forEach(d => {
-                    let osc = this.ctx.createOscillator();
-                    osc.type = 'sawtooth';
-                    osc.frequency.value = freq;
-                    osc.detune.value = d;
-                    osc.connect(env);
-                    osc.start(now);
-                    osc.stop(now + 2.0);
-                });
-            },
+.target-chip--active {
+    border-color: var(--accent-primary);
+    background: rgba(0,122,255,0.2);
+    color: #e5f1ff;
+}
 
-            // 2. 史诗战鼓 (Epic Drums)
-            playDrum: function(time) {
-                // Kick
-                let osc = this.ctx.createOscillator();
-                let gain = this.ctx.createGain();
-                osc.connect(gain);
-                gain.connect(this.reverb);
-                
-                osc.frequency.setValueAtTime(100, time);
-                osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
-                
-                gain.gain.setValueAtTime(0.8, time);
-                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
-                
-                osc.start(time);
-                osc.stop(time + 0.5);
-            },
+/* 4.2 播放器层（展开/收起） */
+#playerLayer {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease, opacity 0.25s ease;
+    background: #181a20;
+    border-radius: var(--radius-lg);
+    border: 1px solid transparent;
+    box-sizing: border-box;
+}
 
-            // === 节奏时钟与编曲逻辑 ===
-            clock: function() {
-                // 100 BPM
-                let lookahead = 0.1; 
-                let interval = 0.15; // 1/4拍 
-                
-                let schedule = () => {
-                    if(!this.isRecording) return;
-                    let now = this.ctx.currentTime;
-                    
-                    // 调度未来音符
-                    if (now >= this.nextNoteTime - lookahead) {
-                        // 1. 播放背景鼓点 (4/4拍)
-                        if (this.beatCount % 4 === 0) {
-                            this.playDrum(this.nextNoteTime); // 重拍
-                            this.drawPulse(); // 视觉跳动
-                        }
+#playerLayer.show {
+    max-height: 70px;
+    opacity: 1;
+    border-color: var(--border-soft);
+}
 
-                        // 2. 检测呼噜声并触发弦乐
-                        this.checkMicAndPlay(this.nextNoteTime);
+#playerLayer audio {
+    width: 100%;
+    display: block;
+    height: 40px;
+    outline: none;
+}
 
-                        this.nextNoteTime += 0.6; // 每0.6秒一拍
-                        this.beatCount++;
-                    }
-                    requestAnimationFrame(schedule);
-                };
-                requestAnimationFrame(schedule);
-            },
+/* 4.3 按钮组 */
+.btn-row {
+    display: flex;
+    gap: 12px;
+}
 
-            checkMicAndPlay: function(time) {
-                let data = new Uint8Array(this.analyser.frequencyBinCount);
-                this.analyser.getByteFrequencyData(data);
-                let sum=0; for(let i=0; i<data.length; i++) sum+=data[i];
-                let energy = sum / data.length;
+button {
+    flex: 1;
+    border: none;
+    border-radius: var(--radius-lg);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.08s ease, opacity 0.12s ease, box-shadow 0.12s ease;
+    padding: 10px 0;
+}
 
-                // 门限：只有声音够大才触发
-                if (energy > 15) {
-                    // 量化音高 (Quantize)
-                    let idx = Math.floor((energy / 60) * this.scale.length);
-                    idx = Math.min(idx, this.scale.length-1);
-                    let note = this.scale[idx];
-                    
-                    // 随机升降八度，增加丰富度
-                    if (Math.random()>0.7) note *= 2; 
-                    if (Math.random()>0.8) note /= 2;
+button:active {
+    opacity: 0.8;
+    transform: translateY(1px);
+}
 
-                    // 演奏！
-                    this.playStrings(note, Math.min(energy/100, 1.0));
-                    
-                    // 更新UI文字
-                    document.getElementById('status').innerText = "GENERATING: C-MINOR STRINGS";
-                    document.getElementById('status').style.color = "#d4af37";
-                } else {
-                    document.getElementById('status').innerText = "LISTENING...";
-                    document.getElementById('status').style.color = "#666";
-                }
-            },
+button:disabled {
+    background: #222;
+    color: #555;
+    cursor: default;
+    box-shadow: none;
+}
 
-            // UI与工具
-            updateTimer: function() {
-                let s = Math.floor((Date.now() - this.startTime)/1000);
-                let m = Math.floor(s/60).toString().padStart(2,'0');
-                s = (s%60).toString().padStart(2,'0');
-                document.getElementById('timer').innerText = `${m}:${s}`;
-            },
+/* 状态颜色 */
+.btn-rec    { background: var(--accent-record); color: #fff; }
+.btn-stop   { background: #3a3a3c; color: #fefefe; }
+.btn-save   { background: var(--accent-ok); color: #000; }
+.btn-reset  { background: #2c2c30; color: var(--text-muted); }
 
-            updateUI: function(state) {
-                const start = document.getElementById('btnStart');
-                const stop = document.getElementById('btnStop');
-                const save = document.getElementById('btnSave');
-                const box = document.getElementById('playerBox');
+/* 可选：给录制中的按钮加跳动光晕 */
+.btn-rec.recording {
+    box-shadow: 0 0 18px rgba(255,59,48,0.6);
+}
 
-                if (state === 'rec') {
-                    start.disabled = true; start.style.opacity = '0.3';
-                    stop.disabled = false; stop.style.opacity = '1';
-                    save.disabled = true;
-                    box.classList.remove('show');
-                } else {
-                    start.disabled = false; start.innerText = "▶ 再来一首"; start.style.opacity = '1';
-                    stop.disabled = true; stop.style.opacity = '0.3';
-                    save.disabled = false;
-                    box.classList.add('show');
-                    document.getElementById('status').innerText = "SYMPHONY COMPLETE";
-                }
-            },
+/* ========== 5. 微信遮罩 ========== */
 
-            drawPulse: function() {
-                const c = document.getElementById('canvas');
-                const cx = c.getContext('2d');
-                cx.fillStyle = 'rgba(212, 175, 55, 0.1)';
-                cx.fillRect(0,0,c.width,c.height);
-            },
-            
-            loop: function() {
-                requestAnimationFrame(()=>this.loop());
-                if(!this.isRecording) return;
-                // 简单的淡出
-                const c = document.getElementById('canvas');
-                const cx = c.getContext('2d');
-                cx.fillStyle = 'rgba(0,0,0,0.05)';
-                cx.fillRect(0,0,c.width,c.height);
-            }
-        };
-    </script>
-</body>
-</html>
+#wxMask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    z-index: 1000;
+    display: none; /* 默认隐藏 */
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 24px;
+    box-sizing: border-box;
+    color: #fff;
+}
+
+/* 显示遮罩时使用 flex 以启用居中对齐 */
+#wxMask.show {
+    display: flex;
+}
+
+.wxMask-content {
+    max-width: 320px;
+    font-size: 14px;
+    line-height: 1.5;
+    opacity: 0.95;
+}
+
+/* ========== 6. 响应式微调 ========== */
+
+@media (max-height: 640px) {
+    .controls {
+        padding-top: 8px;
+        padding-bottom: 10px;
+        gap: 8px;
+    }
+    .timer {
+        font-size: 30px;
+    }
+}
