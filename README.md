@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bat-music</title>
+    <title>Bat-music: Functional Core</title>
     <style>
-        /* === Bat-music 艺术视觉风格 === */
+        /* === 视觉风格：量子场论黑 === */
         body {
-            font-family: 'Courier New', monospace;
-            background-color: #0f0014; /* 深邃紫夜色 */
-            color: #d8b4fe;
+            font-family: 'Menlo', 'Monaco', monospace;
+            background-color: #000;
+            color: #0f0;
             margin: 0;
             height: 100vh;
             display: flex;
@@ -17,264 +17,336 @@
             overflow: hidden;
         }
 
-        /* 1. 核心视觉区：沉浸式画布 */
-        .stage {
+        /* 1. 动态场显示区 */
+        .field-monitor {
             flex: 1;
             position: relative;
-            background: radial-gradient(circle at bottom, #2a0055 0%, #000 80%);
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            background: #050505;
         }
-        canvas {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-        }
-
-        /* 2. 抬头显示 (HUD) */
+        canvas { width: 100%; height: 100%; display: block; }
+        
         .hud {
             position: absolute;
             top: 20px; left: 20px;
             pointer-events: none;
-            text-shadow: 0 0 10px #d4aaff;
-            z-index: 10;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border: 1px solid #333;
         }
-        .brand {
-            font-size: 24px;
-            font-weight: bold;
-            color: #fff;
-            letter-spacing: 2px;
-            margin-bottom: 5px;
-        }
-        .info { font-size: 12px; opacity: 0.8; }
-
-        /* 3. 中央音符显示 */
-        .current-note {
-            position: relative;
-            z-index: 5;
-            font-size: 80px;
-            font-weight: 900;
-            color: rgba(255, 255, 255, 0.1);
-            transition: all 0.1s;
+        .hud-item { margin-bottom: 5px; font-size: 11px; }
+        .val-highlight { color: #fff; font-weight: bold; }
+        
+        /* 泛函计算指示器 */
+        .math-overlay {
+            position: absolute;
+            bottom: 20px; right: 20px;
+            text-align: right;
+            font-size: 10px;
+            color: #666;
+            line-height: 1.4;
         }
 
-        /* 4. 底部控制台 */
+        /* 2. 底部控制台 */
         .controls {
             padding: 20px;
-            background: #1a0524;
-            border-top: 1px solid #440066;
-            text-align: center;
-            /* 适配 iPhone 底部安全区 */
+            background: #111;
+            border-top: 1px solid #222;
+            display: flex;
+            justify-content: center;
             padding-bottom: env(safe-area-inset-bottom, 20px);
         }
 
         button {
-            background: linear-gradient(135deg, #b000ff, #0044ff);
-            border: none;
-            padding: 18px 40px;
-            color: #fff;
-            font-size: 16px;
-            font-weight: bold;
-            border-radius: 50px;
-            box-shadow: 0 0 25px rgba(176, 0, 255, 0.4);
-            cursor: pointer;
-            width: 80%;
-            max-width: 300px;
+            background: #004400;
+            border: 1px solid #0f0;
+            color: #0f0;
+            padding: 15px 30px;
+            font-size: 14px;
             text-transform: uppercase;
             letter-spacing: 1px;
+            cursor: pointer;
+            width: 100%;
+            max-width: 400px;
         }
-        button:active { transform: scale(0.96); opacity: 0.9; }
+        button:active { background: #006600; color: #fff; }
+
+        /* 状态灯 */
+        .indicator {
+            display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #333; margin-right: 5px;
+        }
+        .indicator.active { background: #0f0; box-shadow: 0 0 10px #0f0; }
 
     </style>
 </head>
 <body>
 
-    <div class="stage">
+    <div class="field-monitor">
         <canvas id="canvas"></canvas>
         
         <div class="hud">
-            <div class="brand">Bat-music</div>
-            <div class="info">
-                MODE: SLEEP JAZZ<br>
-                FREQ: <span id="freqVal">--</span> Hz<br>
-                GAIN: <span id="gainVal">0</span>%
-            </div>
+            <div class="hud-item"><span class="indicator" id="gateLed"></span> GATE: <span id="gateState" class="val-highlight">CLOSED</span></div>
+            <div class="hud-item">TIMBRE (C): <span id="timbreVal" class="val-highlight">--</span></div>
+            <div class="hud-item">INSTRUMENT: <span id="instName" style="color:#0af">--</span></div>
+            <div class="hud-item">ENERGY (E): <span id="energyVal">0</span></div>
         </div>
 
-        <div class="current-note" id="visualNote">♫</div>
+        <div class="math-overlay">
+            Bat-music v2.0 Kernel<br>
+            Y* Calculation: Functional Harmonic Path<br>
+            Δ(t) -> Pitch Correction & LFO
+        </div>
     </div>
 
     <div class="controls">
-        <button onclick="startMusic()" id="btnStart">启动 (Start Session)</button>
+        <button onclick="initEngine()" id="btnStart">Initialize Field (启动场)</button>
     </div>
 
     <script>
-        // === 全局变量 ===
+        // === 1. 物理引擎与全局变量 ===
         let audioCtx, analyser, micSource;
-        let osc, gainNode, delayNode, feedbackNode, filterNode;
         let isRunning = false;
         let wakeLock = null;
 
-        // 画布相关
-        let canvas, ctx, w, h;
+        // 合成器组件 (Synthesizer Nodes)
+        let osc, filter, gainNode, lfo, delay, feedback;
         
-        // --- 乐理核心：C小调五声音阶 (适合深夜的神秘感) ---
-        // C3, Eb3, F3, G3, Bb3, C4, Eb4...
+        // CIEU 状态变量
+        let energy = 0;         // 能量
+        let centroid = 0;       // 频谱质心 (决定音色)
+        let targetFreq = 0;     // Y* (目标频率)
+        let currentFreq = 0;    // 当前实际频率
+        let gateOpen = false;   // 门限状态
+
+        // 画布
+        let canvas, ctx, w, h;
+        let particles = []; // 可视化粒子
+
+        // --- 音乐理论：C Dorian Scale (神秘、爵士感) ---
+        // 频率表: C3, D3, Eb3, F3, G3, A3, Bb3, C4...
         const SCALE = [
-            130.81, 155.56, 174.61, 196.00, 233.08, 
-            261.63, 311.13, 349.23, 392.00, 466.16, 
-            523.25, 622.25
+            130.81, 146.83, 155.56, 174.61, 196.00, 220.00, 233.08, 
+            261.63, 293.66, 311.13, 349.23, 392.00, 440.00, 466.16, 
+            523.25
         ];
 
-        // === 1. 启动 Bat-music ===
-        async function startMusic() {
+        // === 2. 泛函初始化 ===
+        async function initEngine() {
             if (isRunning) return;
-            
             try {
-                // A. 屏幕常亮
-                if ('wakeLock' in navigator) {
-                    try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e){}
-                }
+                if ('wakeLock' in navigator) { try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e){} }
 
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-                // B. 构建合成器链路 (Synth Chain)
-                // 1. 振荡器 (声音源) - 使用正弦波，最纯净，像玻璃琴
+                
+                // --- A. 合成器架构 (The Instrument) ---
+                
+                // 1. 振荡器 (源)
                 osc = audioCtx.createOscillator();
-                osc.type = 'sine'; 
+                osc.type = 'sine'; // 初始波形
                 
-                // 2. 音量门 (VCA)
+                // 2. 滤波器 (塑形) - 低通滤波
+                filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.Q.value = 5; // 共振峰，增加电子感
+
+                // 3. LFO (颤音/张力) - 用于表现 Δ 误差
+                lfo = audioCtx.createOscillator();
+                lfo.type = 'sine';
+                lfo.frequency.value = 0; // 初始无颤音
+                let lfoGain = audioCtx.createGain();
+                lfoGain.gain.value = 10; // 颤音深度
+                lfo.connect(lfoGain);
+                lfoGain.connect(osc.frequency); // 调制音高
+                lfo.start();
+
+                // 4. 音量包络 (ADSR Gate)
                 gainNode = audioCtx.createGain();
-                gainNode.gain.value = 0; // 默认静音
+                gainNode.gain.value = 0;
 
-                // 3. 效果器链：延时 (Delay) + 混响感
-                delayNode = audioCtx.createDelay();
-                delayNode.delayTime.value = 0.4; // 400ms 回声
-                
-                feedbackNode = audioCtx.createGain();
-                feedbackNode.gain.value = 0.4; // 回声长短
+                // 5. 空间效果 (Delay)
+                delay = audioCtx.createDelay();
+                delay.delayTime.value = 0.4;
+                feedback = audioCtx.createGain();
+                feedback.gain.value = 0.3;
 
-                filterNode = audioCtx.createBiquadFilter();
-                filterNode.type = 'lowpass'; // 让回声更暗淡，不抢主音
-                filterNode.frequency.value = 1000;
-
-                // C. 连接线路
-                // 声音 -> 音量 -> 输出
-                osc.connect(gainNode);
-                gainNode.connect(audioCtx.destination); 
-                
-                // 声音 -> 音量 -> 延时 -> 滤波 -> 反馈 -> 回到延时 (形成回声) -> 输出
-                gainNode.connect(delayNode);
-                delayNode.connect(filterNode);
-                filterNode.connect(feedbackNode);
-                feedbackNode.connect(delayNode);
-                delayNode.connect(audioCtx.destination);
+                // 连线
+                osc.connect(filter);
+                filter.connect(gainNode);
+                gainNode.connect(audioCtx.destination); // 干声
+                gainNode.connect(delay);                // 湿声
+                delay.connect(feedback);
+                feedback.connect(delay);
+                delay.connect(audioCtx.destination);
 
                 osc.start();
 
-                // D. 麦克风输入 (Input)
+                // --- B. 传感器架构 (The Ear) ---
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 analyser = audioCtx.createAnalyser();
-                analyser.fftSize = 1024; // 适中的精度
-                analyser.smoothingTimeConstant = 0.5; // 让视觉更柔和
+                analyser.fftSize = 2048; // 高精度 FFT 以计算质心
+                analyser.smoothingTimeConstant = 0.3;
                 micSource = audioCtx.createMediaStreamSource(stream);
                 micSource.connect(analyser);
 
-                // E. 视觉初始化
+                // --- C. 视觉 ---
                 canvas = document.getElementById('canvas');
                 ctx = canvas.getContext('2d');
                 resizeCanvas();
                 window.addEventListener('resize', resizeCanvas);
 
-                // UI 更新
-                document.getElementById('btnStart').style.display = 'none'; // 隐藏按钮，沉浸体验
+                // UI
+                document.getElementById('btnStart').style.display = 'none';
                 isRunning = true;
                 
-                // 启动循环
-                loop(); 
+                // 启动 CIEU 循环
+                computeLoop();
 
             } catch (e) {
-                alert("无法启动：请允许麦克风权限。Bat-music 需要聆听您的呼吸。");
+                alert("启动失败: 请检查麦克风权限。" + e);
             }
         }
 
-        // === 2. 核心转换逻辑 ===
-        function loop() {
-            requestAnimationFrame(loop);
+        // === 3. 泛函动态计算内核 (Core Loop) ===
+        function computeLoop() {
+            requestAnimationFrame(computeLoop);
             
-            // 获取音频数据
-            const data = new Uint8Array(analyser.frequencyBinCount);
-            analyser.getByteFrequencyData(data);
-            
-            // 计算当前总音量 (作为能量值)
+            // 1. 获取频域数据
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteFrequencyData(dataArray);
+
+            // 2. 计算五元组参数
+            // E (Energy): 总体积
             let sum = 0;
-            for(let i=0; i<data.length; i++) sum += data[i];
-            let vol = sum / data.length;
+            let weightedSum = 0;
+            for(let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i];
+                weightedSum += i * dataArray[i];
+            }
+            energy = sum / bufferLength;
+            
+            // C (Centroid): 频谱质心 = 加权平均频率 / 总能量
+            // 质心决定了声音是“闷”(低) 还是 “亮”(高)
+            centroid = sum > 0 ? weightedSum / sum : 0;
 
-            // --- 音乐映射 (Mapping) ---
-            // 阈值设为 10，过滤掉极其微小的底噪
-            if (vol > 10) { 
-                // 1. 音量 -> 音高
-                // 呼噜声越大，音调越高。映射到 SCALE 数组中
-                let index = Math.floor((vol / 80) * SCALE.length);
-                if (index >= SCALE.length) index = SCALE.length - 1;
-                let targetFreq = SCALE[index];
+            // --- 动态决策层 ---
 
-                // 2. 滑音 (Portamento)
-                // 让音高变化平滑，不要太跳跃，像大提琴一样
-                osc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.2);
+            // A. 门限判定 (Gate Logic)
+            // 只有能量 > 10 才启动，否则进入 Release 状态 (解决"停不下来"的问题)
+            if (energy > 15) {
+                if (!gateOpen) {
+                    // Attack (起音)
+                    gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+                    gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.1);
+                    gateOpen = true;
+                    updateHUD(true);
+                }
                 
-                // 3. 音量 -> 增益
-                // 限制最大音量为 0.6，保护听力
-                let targetGain = Math.min(vol/120, 0.6);
-                gainNode.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.1);
+                // B. 音色映射 (Timbre Mapping) - 不同的怪声对应不同乐器
+                // 质心 < 20: 呼噜/深沉 -> 正弦波 (Bass)
+                // 质心 20-60: 人声/哼唱 -> 三角波 (Cello)
+                // 质心 > 60: 尖叫/敲击 -> 锯齿波 (Synth Lead)
+                let type = 'sine';
+                let instName = 'DEEP BASS';
+                let cutoffBase = 500;
 
-                // HUD 更新
-                document.getElementById('freqVal').innerText = targetFreq.toFixed(0);
-                document.getElementById('gainVal').innerText = (targetGain * 100).toFixed(0);
+                if (centroid > 60) { 
+                    type = 'sawtooth'; 
+                    instName = 'ACID LEAD'; 
+                    cutoffBase = 2000;
+                } else if (centroid > 20) { 
+                    type = 'triangle'; 
+                    instName = 'ELECTRIC CELLO'; 
+                    cutoffBase = 1000;
+                }
 
-                // 视觉中心音符律动
-                let noteEl = document.getElementById('visualNote');
-                noteEl.style.opacity = 0.2 + (vol/100);
-                noteEl.style.transform = `scale(${1 + vol/30})`;
-                noteEl.style.color = `hsl(${260 + vol}, 100%, 70%)`; // 颜色随力度变亮
+                if (osc.type !== type) osc.type = type;
+
+                // C. Y* 寻路 (Target Finding)
+                // 能量越大，音高越高。将能量映射到音阶索引。
+                let noteIndex = Math.floor((energy / 60) * SCALE.length);
+                if (noteIndex >= SCALE.length) noteIndex = SCALE.length - 1;
+                targetFreq = SCALE[noteIndex];
+
+                // D. 路径积分 (Smooth Transition)
+                // 使用指数平滑逼近 Y*
+                osc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.2);
+
+                // E. Δ 误差表现 (Tension)
+                // 滤波器开度随能量动态变化
+                filter.frequency.setTargetAtTime(cutoffBase + (energy * 20), audioCtx.currentTime, 0.1);
+                
+                // 如果声音极其不稳定(质心抖动大)，增加 LFO 颤音
+                lfo.frequency.value = (centroid / 10); 
 
             } else {
-                // 没声音时，缓慢静音 (Release)
-                gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 1.0);
+                if (gateOpen) {
+                    // Release (释音) - 优雅淡出
+                    gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.0); // 1秒长尾
+                    gateOpen = false;
+                    updateHUD(false);
+                }
             }
 
-            // --- 视觉渲染 ---
-            drawVisuals(data);
+            // 更新数据显示
+            document.getElementById('energyVal').innerText = energy.toFixed(1);
+            document.getElementById('timbreVal').innerText = centroid.toFixed(1);
+            document.getElementById('instName').innerText = gateOpen ? instName : "--";
+
+            // 渲染视觉
+            drawField(dataArray);
         }
 
-        // === 3. 艺术视觉渲染 ===
-        function drawVisuals(data) {
-            // 制造拖影效果 (Trails)
-            ctx.fillStyle = 'rgba(15, 0, 20, 0.2)'; 
+        function updateHUD(isOpen) {
+            const led = document.getElementById('gateLed');
+            const txt = document.getElementById('gateState');
+            if (isOpen) {
+                led.className = "indicator active";
+                txt.innerText = "OPEN (PLAYING)";
+                txt.style.color = "#0f0";
+            } else {
+                led.className = "indicator";
+                txt.innerText = "CLOSED (IDLE)";
+                txt.style.color = "#666";
+            }
+        }
+
+        // === 4. 波形场可视化 ===
+        function drawField(data) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; // 拖影残像
             ctx.fillRect(0, 0, w, h);
 
-            let barWidth = (w / data.length) * 2;
-            let x = 0;
+            if (!gateOpen && energy < 5) return;
 
-            for(let i = 0; i < data.length; i++) {
+            let cx = w / 2;
+            let cy = h / 2;
+            let radius = 50 + energy;
+
+            ctx.beginPath();
+            ctx.strokeStyle = gateOpen ? `hsl(${centroid * 4}, 100%, 50%)` : '#333';
+            ctx.lineWidth = 2;
+
+            // 绘制极坐标波形 (像一只眼睛或雷达)
+            for (let i = 0; i < data.length; i+=5) {
                 let val = data[i];
-                let barHeight = val * 1.5;
-
-                // 颜色算法：基于紫色的渐变
-                // 底部深紫 -> 顶部亮粉
-                let hue = 270 + (i / data.length) * 60; 
-                let light = 30 + (val / 255) * 50;
+                let angle = (i / data.length) * Math.PI * 2;
                 
-                ctx.fillStyle = `hsl(${hue}, 80%, ${light}%)`;
-                
-                // 绘制镜像波形 (像湖面倒影)
-                let centerY = h / 2;
-                ctx.fillRect(x, centerY - barHeight/2, barWidth, barHeight);
+                // 半径随频谱能量波动
+                let r = radius + val; 
+                let x = cx + Math.cos(angle) * r;
+                let y = cy + Math.sin(angle) * r;
 
-                x += barWidth + 1;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
             }
+            ctx.closePath();
+            ctx.stroke();
+
+            // 绘制 Y* 目标核心
+            ctx.beginPath();
+            ctx.fillStyle = '#fff';
+            ctx.arc(cx, cy, energy / 5, 0, Math.PI * 2);
+            ctx.fill();
         }
 
         function resizeCanvas() {
@@ -282,7 +354,6 @@
             h = canvas.height = canvas.parentElement.clientHeight;
         }
 
-        // 唤醒锁维持
         document.addEventListener('visibilitychange', async () => {
             if (wakeLock !== null && document.visibilityState === 'visible') {
                 try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e){}
