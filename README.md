@@ -40,6 +40,7 @@
             justify-content: space-between;
             pointer-events: none;
             text-shadow: 0 0 5px #0f0;
+            z-index: 10;
         }
         .beat-indicator {
             width: 10px; height: 10px; background: #333; border-radius: 50%;
@@ -55,6 +56,7 @@
             background: rgba(0,0,0,0.8);
             padding: 5px;
             border: 1px solid #040;
+            pointer-events: none;
         }
 
         /* 2. 控制台 */
@@ -97,13 +99,23 @@
             gap: 8px;
         }
         button:active { background: #0f0; color: #000; }
-        button:disabled { border-color: #333; color: #333; pointer-events: none; }
+        
+        /* 禁用状态优化：不再全黑，而是暗绿色 */
+        button:disabled { 
+            border-color: #333; 
+            color: #444; 
+            background: #080808;
+            pointer-events: none; 
+        }
 
         /* 特殊按钮色 */
         .btn-stop { border-color: #f00; color: #f00; }
         .btn-stop:active { background: #f00; color: #fff; }
+        .btn-stop:disabled { border-color: #333; color: #400; }
+        
         .btn-share { border-color: #0af; color: #0af; }
         .btn-share:active { background: #0af; color: #000; }
+        .btn-share:disabled { border-color: #333; color: #004; }
 
     </style>
 </head>
@@ -113,7 +125,7 @@
         <canvas id="canvas"></canvas>
         
         <div class="top-hud">
-            <div>QUANTUM COMPOSER v5.0</div>
+            <div>QUANTUM COMPOSER v5.1</div>
             <div class="beat-indicator" id="beatLed"></div>
         </div>
 
@@ -155,7 +167,7 @@
         // 音序器 (The Sequencer)
         let bpm = 110;
         let nextNoteTime = 0;
-        let noteQueue = []; // 待播放队列
+        let noteQueue = []; 
         let beatCount = 0;
 
         // 录音机
@@ -164,13 +176,10 @@
         let blobUrl = null;
 
         // 场叠加层 (Loops)
-        // 我们不录声音，我们录"事件"。
-        // { time: 0.0, type: 'kick', note: 200 }
         let patternLayers = []; 
         let currentLayer = [];
         
         // 乐理：泛函 Y*
-        // C Minor Pentatonic + Blue Note
         const SCALE = [130.81, 155.56, 174.61, 185.00, 196.00, 233.08, 261.63, 311.13, 349.23, 392.00];
 
         // 信号分析
@@ -185,6 +194,7 @@
         // === 1. 启动与叠加 (Layering) ===
         async function startComposition() {
             try {
+                // 初始化 Audio Context
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 if (audioCtx.state === 'suspended') await audioCtx.resume();
                 
@@ -208,7 +218,7 @@
                 isRecording = true;
                 currentLayer = []; // 准备新的一层
                 
-                // UI
+                // UI 切换
                 document.getElementById('btnStart').innerText = "🔴 正在叠加...";
                 document.getElementById('btnStart').disabled = true;
                 document.getElementById('btnStop').disabled = false;
@@ -233,7 +243,7 @@
                 mediaRecorder.stop();
             }
 
-            // UI
+            // UI 切换
             document.getElementById('btnStart').innerText = "▶ 再次叠加";
             document.getElementById('btnStart').disabled = false;
             document.getElementById('btnStop').disabled = true;
@@ -275,11 +285,6 @@
                 let blob = new Blob(chunks, { type: mediaRecorder.mimeType });
                 if (blobUrl) URL.revokeObjectURL(blobUrl);
                 blobUrl = URL.createObjectURL(blob);
-                
-                // 可以在这里自动播放预览
-                let p = document.getElementById('hiddenPlayer');
-                p.src = blobUrl;
-                // p.play(); 
             };
             
             mediaRecorder.start();
@@ -303,18 +308,13 @@
             let energy = sum / data.length;
             let centroid = sum > 0 ? weightedSum / sum : 0;
 
-            // 瞬态检测 (Transient Detection)
-            // 能量突然增加，且超过阈值
+            // 瞬态检测
             if (triggerCooldown > 0) triggerCooldown--;
 
             if (energy > 20 && (energy - lastEnergy) > 5 && triggerCooldown <= 0) {
                 // >>> 触发事件 <<<
                 
-                // 1. 量化时间 (Quantize Time)
-                // 记录相对于当前小节的位置
-                // 简化处理：直接记录触发，但在播放时量化
-                
-                // 2. 泛函计算 Y* (确定乐器和音高)
+                // 1. 泛函计算 Y* (确定乐器和音高)
                 let type, note;
                 
                 if (centroid < 20) {
@@ -329,8 +329,148 @@
                     note = SCALE[Math.min(idx, SCALE.length-1)];
                 }
 
-                // 3. 立即演奏 (Feedback)
+                // 2. 立即演奏 (Feedback)
                 playNote(type, note, audioCtx.currentTime);
                 
-                // 4. 记录到层 (Record)
-                current
+                // 3. 记录到层 (Record)
+                currentLayer.push({ type: type, note: note, time: audioCtx.currentTime });
+
+                // 冷却
+                triggerCooldown = 8; 
+                
+                // 视觉
+                visuals.push({x: Math.random()*w, y: h/2, color: type=='kick'?'#f00':(type=='bass'?'#00f':'#0f0'), life: 1});
+                document.getElementById('eventCount').innerText = parseInt(document.getElementById('eventCount').innerText)+1;
+            }
+
+            lastEnergy = energy;
+        }
+
+        // === 5. 乐器生成器 (Instrument Synthesis) ===
+        function playNote(type, freq, time) {
+            let master = audioCtx.createGain();
+            master.gain.value = 0.5;
+            master.connect(audioCtx.destination);
+            master.connect(destNode);
+
+            if (type === 'kick') {
+                // 808 Kick
+                let osc = audioCtx.createOscillator();
+                let gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(master);
+                
+                osc.frequency.setValueAtTime(150, time);
+                osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
+                gain.gain.setValueAtTime(1, time);
+                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+                
+                osc.start(time);
+                osc.stop(time + 0.5);
+
+            } else if (type === 'bass') {
+                // FM Bass
+                let osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.value = freq / 2; // 下沉八度
+                
+                let gain = audioCtx.createGain();
+                gain.connect(master);
+                osc.connect(gain);
+
+                gain.gain.setValueAtTime(0.6, time);
+                gain.gain.setTargetAtTime(0, time, 0.2);
+                
+                osc.start(time);
+                osc.stop(time + 0.5);
+
+            } else if (type === 'synth') {
+                // Pluck Synth
+                let osc = audioCtx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.value = freq;
+                
+                let filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.Q.value = 5;
+                filter.frequency.setValueAtTime(200, time);
+                filter.frequency.linearRampToValueAtTime(2000, time+0.05);
+                filter.frequency.linearRampToValueAtTime(200, time+0.2);
+
+                let gain = audioCtx.createGain();
+                gain.gain.setValueAtTime(0, time);
+                gain.gain.linearRampToValueAtTime(0.4, time+0.02);
+                gain.gain.exponentialRampToValueAtTime(0.01, time+0.4);
+
+                osc.connect(filter);
+                filter.connect(gain);
+                gain.connect(master);
+                
+                osc.start(time);
+                osc.stop(time + 0.4);
+            }
+        }
+
+        // === 6. 时钟调度 ===
+        function scheduler() {
+            let now = audioCtx.currentTime;
+            if (now >= nextNoteTime) {
+                beatCount++;
+                let led = document.getElementById('beatLed');
+                led.classList.add('active');
+                setTimeout(()=>led.classList.remove('active'), 100);
+                nextNoteTime += 60.0 / bpm;
+            }
+            requestAnimationFrame(scheduler);
+        }
+
+        // === 7. 存储与分享 ===
+        function saveFile() {
+            if (!blobUrl) return;
+            let a = document.createElement('a');
+            a.href = blobUrl;
+            let t = new Date().toISOString().slice(11,19).replace(/:/g,'');
+            a.download = `Bat_Quantum_${t}.webm`; 
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            // 显示提示
+            document.getElementById('dlTip').style.display = 'block';
+        }
+
+        function resetAll() {
+            if(confirm("确定清空所有音轨吗？")) {
+                location.reload();
+            }
+        }
+
+        // === 绘图 ===
+        function resize() {
+            w = canvas.width = canvas.parentElement.clientWidth;
+            h = canvas.height = canvas.parentElement.clientHeight;
+        }
+
+        function drawLoop() {
+            requestAnimationFrame(drawLoop);
+            if(!ctx) return;
+            ctx.clearRect(0,0,w,h);
+            
+            // 绘制网格线移动
+            let offset = (Date.now() / 20) % 40;
+            
+            for(let i=visuals.length-1; i>=0; i--) {
+                let v = visuals[i];
+                ctx.beginPath();
+                ctx.arc(v.x, v.y, 20 * v.life, 0, Math.PI*2);
+                ctx.strokeStyle = v.color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                v.life -= 0.05;
+                if(v.life <= 0) visuals.splice(i,1);
+            }
+        }
+
+    </script>
+</body>
+</html>
