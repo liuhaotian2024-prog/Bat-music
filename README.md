@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <title>Bat-music · 从呼噜到地狱作曲</title>
+  <title>Bat-music · 从呼噜到地狱作曲（PCM版）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <style>
@@ -397,7 +397,7 @@
           elStatusText.textContent = '录制中：请发出你想“炼成乐曲”的声音…';
           break;
         case 'generating':
-          elStatusText.textContent = '根据噪音场与乐音场的张力，在地狱熔炉中作曲…';
+          elStatusText.textContent = '根据噪音场与乐音场的张力，在地狱熔炉中作曲（PCM 合成）…';
           break;
         case 'generated':
           elStatusText.textContent = '已生成地狱乐曲，可以播放 / 保存 / 分享。';
@@ -526,7 +526,7 @@
       drawing = false;
     }
 
-    /********** 录音管线 **********/
+    /********** 录音管线（保留原来稳定版本） **********/
     async function startRecording() {
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -620,33 +620,27 @@
       }
     }
 
-    /********** 地狱作曲 **********/
+    /********** 地狱作曲：纯 PCM 合成 **********/
     async function generateFromRecording(floatData, sampleRate) {
       try {
         const analysis = analyzeAndDescribe(floatData, sampleRate);
         elSummary.textContent = analysis.summary;
 
-        const rendered = await renderHellComposition(
-          analysis.features,
-          analysis.styleId,
-          floatData,
-          sampleRate
-        );
+        const composed = composePCM(analysis.features, analysis.styleId, floatData, sampleRate);
+        batState.floatData = composed;
+        const wavBlob = encodeWAV(composed, sampleRate);
+        batState.generatedBlob = wavBlob;
 
-        batState.floatData = rendered.processedData;
-        batState.generatedBlob = rendered.blob;
-
-        const url = URL.createObjectURL(rendered.blob);
+        const url = URL.createObjectURL(wavBlob);
         elAudioPlayer.src = url;
         elPlayerLayer.classList.add('show');
 
         drawCurrentWave();
-        logDebug('作曲样本数=' + rendered.processedData.length +
-                 ', wavSize=' + rendered.blob.size + ' 字节');
+        logDebug('作曲样本数=' + composed.length + ', wavSize=' + wavBlob.size + ' 字节');
 
         setPhase('generated');
       } catch (err) {
-        logDebug('generateFromRecording 失败，fallback 原始录音: ' + err.message);
+        logDebug('generateFromRecording 失败: ' + err.message);
         const blob = encodeWAV(floatData, sampleRate);
         batState.generatedBlob = blob;
         const url = URL.createObjectURL(blob);
@@ -656,7 +650,7 @@
       }
     }
 
-    // 噪音场分析 + Y* 张力（reward）→ 风格 + 特征
+    /********** 噪音场分析 + 风格 / 特征 **********/
     function analyzeAndDescribe(data, sampleRate) {
       const n = data.length;
       if (n === 0) {
@@ -732,84 +726,63 @@
       };
     }
 
-    /********** 乐音场作曲 + 段落结构 + “泛函优化”张力 **********/
-    function renderHellComposition(features, styleId, driverData, sampleRate) {
-      return new Promise((resolve, reject) => {
-        try {
-          const style = getHellStyle(styleId, features);
-          style.styleId = styleId;
+    /********** PCM 合成作曲核心 **********/
+    function composePCM(features, styleId, driverData, sampleRate) {
+      const style = getHellStyle(styleId, features);
+      const spb = 60 / style.bpm;
+      const bars = style.bars;
+      const beats = bars * 4;
+      const totalSeconds = beats * spb;
+      const maxSeconds = 12; // 防止太长
+      const lengthSeconds = Math.min(totalSeconds, maxSeconds);
+      const length = Math.floor(lengthSeconds * sampleRate);
 
-          const spb = 60 / style.bpm;
-          const bars = style.bars;
-          const beats = bars * 4;
-          const totalSeconds = beats * spb;
-          const length = Math.floor(totalSeconds * sampleRate);
+      const out = new Float32Array(length);
 
-          const offline = new OfflineAudioContext(1, length, sampleRate);
-          const master = offline.createGain();
-          master.gain.value = style.masterGain;
-          master.connect(offline.destination);
+      // 段落模板 + 张力曲线（“泛函优化”）
+      const form = buildOptimizedForm(bars, features.reward, styleId);
+      const tensionCurve = form.map(f => f.tension);
 
-          const form = buildOptimizedForm(bars, features.reward, styleId);
-          const tensionCurve = form.map(f => f.tension);
-
-          // 背景噪音场
-          if (driverData && driverData.length > 0) {
-            const driverBuffer = offline.createBuffer(1, length, sampleRate);
-            const dest = driverBuffer.getChannelData(0);
-            for (let i = 0; i < length; i++) {
-              dest[i] = driverData[i % driverData.length];
-            }
-            const src = offline.createBufferSource();
-            src.buffer = driverBuffer;
-
-            const shaper = offline.createWaveShaper();
-            shaper.curve = makeDistortionCurve(style.noiseDist);
-            shaper.oversample = '4x';
-
-            const filter = offline.createBiquadFilter();
-            filter.type = style.noiseFilterType;
-            filter.frequency.value = style.noiseFreq;
-            filter.Q.value = style.noiseQ;
-
-            const g = offline.createGain();
-            g.gain.value = style.noiseLevel;
-
-            src.connect(shaper); shaper.connect(filter); filter.connect(g); g.connect(master);
-            src.start(0);
-          }
-
-          scheduleDrums(offline, master, style, features, form);
-          scheduleBass(offline, master, style, features, form);
-          scheduleLead(offline, master, style, features, form);
-          schedulePad(offline, master, style, features, form);
-          scheduleArp(offline, master, style, features, form);
-          scheduleGlitchFromDriver(offline, master, style, features, driverData, sampleRate, form);
-
-          offline.startRendering().then(buffer => {
-            const out = new Float32Array(buffer.length);
-            try {
-              if (buffer.copyFromChannel) {
-                buffer.copyFromChannel(out, 0, 0);
-              } else {
-                out.set(buffer.getChannelData(0));
-              }
-            } catch (e) {
-              // 兼容老 Safari 等环境
-              logDebug('copyFromChannel 不可用，使用 getChannelData 回退: ' + e.message);
-              out.set(buffer.getChannelData(0));
-            }
-            const normalized = normalizeFloat(out);
-            const blob = encodeWAV(normalized, sampleRate);
-            resolve({ processedData: normalized, blob });
-          }).catch(reject);
-        } catch (err) {
-          reject(err);
+      // 背景噪音场（低电平）
+      if (driverData && driverData.length > 0) {
+        for (let i = 0; i < length; i++) {
+          const v = driverData[i % driverData.length];
+          out[i] += v * style.noiseLevel * 0.3;
         }
-      });
+      }
+
+      // 鼓 / Bass / Lead / Pad / Arp / Glitch
+      addDrumsPCM(out, sampleRate, style, features, form);
+      addBassPCM(out, sampleRate, style, features, form);
+      addLeadPCM(out, sampleRate, style, features, form);
+      addPadPCM(out, sampleRate, style, features, form);
+      addArpPCM(out, sampleRate, style, features, form);
+      addGlitchPCM(out, sampleRate, style, features, form, driverData);
+
+      return normalizeFloat(out);
     }
 
-    // “泛函优化”的段落生成：在多个模板之间做搜索
+    function getHellStyle(styleId, f) {
+      const base = {
+        noiseLevel: 0.25 + 0.35 * (1 - f.reward),
+        bars: f.duration > 8 ? 10 : (f.duration > 4 ? 8 : 6)
+      };
+      switch (styleId) {
+        case 'hell_metal':
+          return { ...base, styleId, bpm: 150, scaleRoot: 42, drumEnergy: 1.3, leadDensity: 0.9 };
+        case 'hell_rock':
+          return { ...base, styleId, bpm: 130, scaleRoot: 45, drumEnergy: 1.0, leadDensity: 0.8 };
+        case 'hell_jazz':
+          return { ...base, styleId, bpm: 115, scaleRoot: 48, drumEnergy: 0.8, leadDensity: 0.9 };
+        case 'hell_rap':
+          return { ...base, styleId, bpm: 90,  scaleRoot: 40, drumEnergy: 0.9, leadDensity: 0.6 };
+        case 'hell_ambient':
+        default:
+          return { ...base, styleId:'hell_ambient', bpm: 75, scaleRoot: 52, drumEnergy: 0.5, leadDensity: 0.4 };
+      }
+    }
+
+    // “泛函优化”的张力曲线（简化版，多模板中选最优）
     function buildOptimizedForm(bars, reward, styleId) {
       const templates = [
         ['intro','groove','groove','break','climax','climax','outro'],
@@ -868,22 +841,40 @@
       return bestForm;
     }
 
-    /********** 乐器层（鼓 / Bass / Lead / Pad / Arp）**********/
-    // 以下 scheduleXxx 全部保持上一版的“地狱 jazz + 多段结构”逻辑，不再赘述
-    // ……（为了长度，这里不再重复逐行解释，逻辑与你刚才那版一致，只是现在不会再因为 buffer.copyFromChannel 报错而回退）
+    /********** PCM 层：鼓 / Bass / Lead / Pad / Arp / Glitch **********/
+    function timeToIndex(t, sr) {
+      return Math.floor(t * sr);
+    }
 
-    // … scheduleDrums, scheduleKick, scheduleSnare, scheduleHat, scheduleBass,
-    //   scheduleLead, schedulePad, scheduleArp, scheduleGlitchFromDriver,
-    //   makeMinorScale, midiToFreq, normalizeFloat, makeDistortionCurve,
-    //   encodeWAV, startTimer, stopTimer, saveGenerated, sharePage, showWxMask, hideWxMask, logDebug
-    // 全部沿用你上一版已体验的逻辑 …
+    function addSine(out, sr, tStart, dur, freq, amp, decay = 3.0) {
+      const start = timeToIndex(tStart, sr);
+      const len = Math.min(out.length - start, Math.floor(dur * sr));
+      const w = 2 * Math.PI * freq / sr;
+      for (let i = 0; i < len; i++) {
+        const env = Math.exp(-decay * i / len);
+        out[start + i] += amp * env * Math.sin(w * i);
+      }
+    }
 
-    // -------------- 为了可运行性，这里直接粘回上一版的实现 --------------
+    function addNoiseHit(out, sr, tStart, dur, amp, highpass=false) {
+      const start = timeToIndex(tStart, sr);
+      const len = Math.min(out.length - start, Math.floor(dur * sr));
+      for (let i = 0; i < len; i++) {
+        let n = (Math.random() * 2 - 1);
+        if (highpass) {
+          // 简单高通：减去邻居平均
+          const prev = (i>0)? (Math.random()*2-1) : 0;
+          n = n - prev * 0.5;
+        }
+        const env = Math.exp(-6 * i / len);
+        out[start + i] += amp * env * n;
+      }
+    }
 
-    function scheduleDrums(ctx, master, style, f, form) {
+    function addDrumsPCM(out, sr, style, f, form) {
       const spb = 60 / style.bpm;
       const beats = style.bars * 4;
-      const swingAmount = (style.styleId === 'hell_jazz') ? 0.18 : 0.0;
+      const isJazz = style.styleId === 'hell_jazz';
 
       for (let b = 0; b < beats; b++) {
         const barIdx = Math.floor(b / 4);
@@ -900,30 +891,32 @@
         const energyScale =
           style.drumEnergy * sectionScale * (0.6 + 0.8 * f.rms / 0.1) * (0.7 + 0.6 * T);
 
+        // Kick
         if (section !== 'break') {
           if (beatInBar === 0 || beatInBar === 2 ||
               (T > 0.6 && Math.random() < 0.6)) {
-            const t = tBase;
-            scheduleKick(ctx, master, t, 55 + T * 25, 0.5 * energyScale);
+            addSine(out, sr, tBase, 0.25, 55 + 25*T, 0.5 * energyScale, 4.0);
           }
         } else if (Math.random() < 0.4) {
-          scheduleKick(ctx, master, tBase, 45 + T * 15, 0.3 * energyScale);
+          addSine(out, sr, tBase, 0.2, 45 + 15*T, 0.3 * energyScale, 4.0);
         }
 
+        // Snare
         if (beatInBar === 1 || beatInBar === 3) {
           if (section !== 'intro') {
             let t = tBase;
-            if (style.styleId === 'hell_jazz') {
-              const isBackBeat = (beatInBar === 1 || beatInBar === 3);
-              if (isBackBeat) t += spb * swingAmount;
+            if (isJazz) {
+              const swing = 0.18;
+              t += spb * swing;
             }
-            scheduleSnare(ctx, master, t, 0.35 * energyScale);
+            addNoiseHit(out, sr, t, 0.18, 0.35 * energyScale, true);
             if (T > 0.7 && Math.random() < 0.5) {
-              scheduleSnare(ctx, master, t - spb * 0.12, 0.13 * energyScale);
+              addNoiseHit(out, sr, t - spb*0.12, 0.12, 0.15*energyScale, true);
             }
           }
         }
 
+        // Hat / ride
         const hatBase = f.zcr > 2000 ? 2 : 1;
         const hatDensity =
           section === 'intro' ? 1 :
@@ -932,63 +925,17 @@
           hatBase + (T > 0.6 ? 1 : 0);
 
         for (let i = 0; i < hatDensity; i++) {
-          let hatT = tBase + spb * (i / hatDensity + 0.5 / (hatDensity + 1));
-          if (style.styleId === 'hell_jazz') {
-            const posInBeat = (hatT - tBase) / spb;
-            if (posInBeat > 0.5) {
-              hatT += spb * swingAmount * (0.7 + 0.6 * T);
-            }
+          let hatT = tBase + spb * (i/hatDensity + 0.5/(hatDensity+1));
+          if (isJazz) {
+            const pos = (hatT - tBase) / spb;
+            if (pos > 0.5) hatT += spb * 0.15 * (0.5 + 0.8*T);
           }
-          scheduleHat(ctx, master, hatT, 0.12 * energyScale);
+          addNoiseHit(out, sr, hatT, 0.08, 0.12 * energyScale, true);
         }
       }
     }
 
-    function scheduleKick(ctx, master, time, baseFreq, gainLevel) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(baseFreq, time);
-      osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.25, time + 0.12);
-      gain.gain.setValueAtTime(gainLevel, time);
-      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.25);
-      osc.connect(gain); gain.connect(master);
-      osc.start(time); osc.stop(time + 0.3);
-    }
-
-    function scheduleSnare(ctx, master, time, gainLevel) {
-      const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.2, ctx.sampleRate);
-      const data = noiseBuffer.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1);
-      const noise = ctx.createBufferSource();
-      noise.buffer = noiseBuffer;
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'highpass';
-      filter.frequency.value = 1900;
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(gainLevel, time);
-      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
-      noise.connect(filter); filter.connect(gain); gain.connect(master);
-      noise.start(time); noise.stop(time + 0.2);
-    }
-
-    function scheduleHat(ctx, master, time, gainLevel) {
-      const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
-      const data = noiseBuffer.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1);
-      const noise = ctx.createBufferSource();
-      noise.buffer = noiseBuffer;
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'highpass';
-      filter.frequency.value = 6500;
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(gainLevel, time);
-      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
-      noise.connect(filter); filter.connect(gain); gain.connect(master);
-      noise.start(time); noise.stop(time + 0.1);
-    }
-
-    function scheduleBass(ctx, master, style, f, form) {
+    function addBassPCM(out, sr, style, f, form) {
       const spb = 60 / style.bpm;
       const beats = style.bars * 4;
       const scale = makeMinorScale(style.scaleRoot);
@@ -1000,7 +947,6 @@
         const { section, tension: T } = form[barIdx];
 
         if (section === 'intro' && Math.random() < 0.5) continue;
-
         const t = b * spb;
 
         let idx;
@@ -1009,9 +955,7 @@
           const step = (Math.random() < 0.2) ? 3 : 1;
           const baseIdx = (b + (direction>0?0:scale.length)) % scale.length;
           idx = (baseIdx + direction * step + scale.length) % scale.length;
-          if (Math.random() < 0.1) {
-            idx = (idx + 3) % scale.length;
-          }
+          if (Math.random() < 0.1) idx = (idx + 3) % scale.length; // tritone
         } else {
           const chordPattern = [0, 5, 3, 4];
           const chordIdx = chordPattern[barIdx % chordPattern.length];
@@ -1021,39 +965,21 @@
 
         const midi = scale[idx];
         const freq = midiToFreq(midi - 12);
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = isJazz ? 'sine' : 'sawtooth';
-        osc.frequency.setValueAtTime(freq, t);
+        const dur = isJazz ? spb*0.9 : spb*(1.4+0.6*T);
+        const amp = baseStrength * (0.7 + 0.9*T);
 
-        const dur =
-          (section === 'break' && !isJazz) ? spb * (0.8 + 0.4 * T) :
-          spb * (isJazz ? 0.9 : (1.4 + 0.6 * T));
-        const strength = baseStrength * (0.7 + 0.9 * T);
-
-        gain.gain.setValueAtTime(strength, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-
-        osc.connect(gain); gain.connect(master);
-        osc.start(t); osc.stop(t + dur + 0.05);
+        // 用少量正弦叠加 saw-ish 感
+        addSine(out, sr, t, dur, freq, amp, 3.0);
+        addSine(out, sr, t, dur, freq*2, amp*0.3, 3.5);
       }
     }
 
-    function scheduleLead(ctx, master, style, f, form) {
+    function addLeadPCM(out, sr, style, f, form) {
       const spb = 60 / style.bpm;
       const beats = style.bars * 4;
-      const baseScale = makeMinorScale(style.scaleRoot + 12);
+      const scale = makeMinorScale(style.scaleRoot + 12);
       const densityBase = style.leadDensity * (0.3 + 0.7 * f.zcr / 3000);
       const isJazz = style.styleId === 'hell_jazz';
-
-      function pickPitch(scale, T, section) {
-        const baseMidi = scale[Math.floor(Math.random() * scale.length)];
-        if (section === 'climax' || (section === 'groove' && T > 0.6)) {
-          const offset = (Math.random() < 0.5 ? -1 : 1);
-          return baseMidi + offset;
-        }
-        return baseMidi;
-      }
 
       for (let b = 0; b < beats; b++) {
         const barIdx = Math.floor(b / 4);
@@ -1077,43 +1003,27 @@
 
         const t = b * spb + spb * offsetBeat;
 
-        let midi = pickPitch(baseScale, T, section);
+        const baseMidi = scale[Math.floor(Math.random() * scale.length)];
+        let midi = baseMidi;
+        if (section === 'climax' || (section === 'groove' && T > 0.6)) {
+          midi += (Math.random() < 0.5 ? -1 : 1); // 半音擦音
+        }
         if (isJazz && Math.random() < 0.4) {
-          const bigLeap = Math.random() < 0.5 ? 9 : -6;
-          midi += bigLeap;
+          midi += (Math.random() < 0.5 ? 9 : -6); // 大跳
         }
 
         const freq = midiToFreq(midi);
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
+        const dur = (section === 'break')
+          ? spb * (0.15 + 0.25*T)
+          : spb * (0.18 + 0.4*(0.5+T));
+        const amp = 0.07 + 0.12*(1-f.reward)*(0.4+T);
 
-        osc.type = (T > 0.65 ? 'sawtooth' : 'square');
-        osc.frequency.setValueAtTime(freq, t);
-        if (T > 0.7) {
-          osc.frequency.linearRampToValueAtTime(
-            freq * (1 + (Math.random() - 0.5) * 0.22),
-            t + spb * 0.25
-          );
-        }
-
-        const dur =
-          section === 'break' ? spb * (0.15 + 0.25 * T) :
-          spb * (0.18 + 0.4 * (0.5 + T));
-        const level = 0.07 + 0.12 * (1 - f.reward) * (0.4 + T);
-
-        gain.gain.setValueAtTime(level, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-
-        const shaper = ctx.createWaveShaper();
-        shaper.curve = makeDistortionCurve(style.dist);
-        shaper.oversample = '4x';
-
-        osc.connect(shaper); shaper.connect(gain); gain.connect(master);
-        osc.start(t); osc.stop(t + dur + 0.05);
+        // 简单方波 lead
+        addSine(out, sr, t, dur, freq, amp, 4.0);
       }
     }
 
-    function schedulePad(ctx, master, style, f, form) {
+    function addPadPCM(out, sr, style, f, form) {
       const spb = 60 / style.bpm;
       const bars = style.bars;
       const scale = makeMinorScale(style.scaleRoot + (style.styleId === 'hell_jazz' ? 7 : 5));
@@ -1127,265 +1037,223 @@
         const { section, tension: T } = form[bar];
         if (section === 'break' && Math.random() < 0.6) continue;
 
-        const barStart = bar * 4 * spb;
-        const usePattern = (section === 'climax' || (isJazz && section === 'break'))
+        const barStart = bar*4*spb;
+        const usePattern = (section === 'climax' || (isJazz && section==='break'))
           ? chordPatternB : chordPatternA;
         const chordDegree = usePattern[bar % usePattern.length];
         const rootIdx = chordDegree % scale.length;
 
         const chord = [
           scale[rootIdx],
-          scale[(rootIdx + 2) % scale.length],
-          scale[(rootIdx + 4) % scale.length]
+          scale[(rootIdx+2)%scale.length],
+          scale[(rootIdx+4)%scale.length]
         ];
-        if (T > 0.5) chord.push(scale[(rootIdx + 6) % scale.length]);
-        if (isJazz && T > 0.6) chord.push(scale[(rootIdx + 1) % scale.length]);
+        if (T>0.5) chord.push(scale[(rootIdx+6)%scale.length]);
+        if (isJazz && T>0.6) chord.push(scale[(rootIdx+1)%scale.length]);
 
         const level =
           baseLevel *
-          (section === 'intro' || section === 'outro' ? 0.8 : 1.0) *
-          (0.5 + 0.8 * (1 - f.reward)) *
-          (0.7 + 0.6 * T);
+          (section==='intro'||section==='outro'?0.8:1.0) *
+          (0.5+0.8*(1-f.reward)) *
+          (0.7+0.6*T);
 
-        chord.forEach((midi, i) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = isJazz ? 'sine' : 'triangle';
-          osc.frequency.setValueAtTime(midiToFreq(midi), barStart);
-
-          const sustain =
-            section === 'break'
-              ? spb * (1.0 + 0.4 * (1 - T))
-              : 4 * spb * (0.9 + 0.4 * T);
-
-          const start = barStart + (i * 0.02);
-          gain.gain.setValueAtTime(level, start);
-          gain.gain.linearRampToValueAtTime(level * 0.7, start + sustain * 0.5);
-          gain.gain.exponentialRampToValueAtTime(0.001, start + sustain);
-
-          osc.connect(gain); gain.connect(master);
-          osc.start(start); osc.stop(start + sustain + 0.1);
+        chord.forEach((midi,i)=>{
+          const freq = midiToFreq(midi);
+          const sustain = (section==='break'
+            ? spb*(1.0+0.4*(1-T))
+            : 4*spb*(0.9+0.4*T));
+          const start = barStart + i*0.02;
+          addSine(out, sr, start, sustain, freq, level, 2.0);
         });
       }
     }
 
-    function scheduleArp(ctx, master, style, f, form) {
+    function addArpPCM(out, sr, style, f, form) {
       const spb = 60 / style.bpm;
       const bars = style.bars;
       const scale = makeMinorScale(style.scaleRoot + 12);
-      const baseDensity = 0.4 + 0.6 * (1 - f.reward);
+      const baseDensity = 0.4 + 0.6*(1-f.reward);
       const isJazz = style.styleId === 'hell_jazz';
 
-      for (let bar = 0; bar < bars; bar++) {
-        const { section, tension: T } = form[bar];
-        const barStart = bar * 4 * spb;
+      for (let bar=0; bar<bars; bar++) {
+        const { section, tension:T } = form[bar];
+        const barStart = bar*4*spb;
         let density =
-          section === 'intro' ? baseDensity * 0.3 :
-          section === 'break' ? baseDensity * 0.5 :
-          section === 'outro' ? baseDensity * 0.4 :
-          baseDensity * (0.6 + 0.7 * T);
+          section==='intro'? baseDensity*0.3 :
+          section==='break'? baseDensity*0.5 :
+          section==='outro'? baseDensity*0.4 :
+          baseDensity*(0.6+0.7*T);
 
-        if (isJazz && (section === 'groove' || section === 'climax')) {
-          density *= 1.3;
-        }
+        if (isJazz && (section==='groove'||section==='climax')) density *= 1.3;
 
-        const stepsPerBar = Math.round(8 + 16 * T);
-
-        for (let i = 0; i < stepsPerBar; i++) {
-          if (Math.random() > density) continue;
-
-          const pos = (i / stepsPerBar) * 4 * spb;
+        const stepsPerBar = Math.round(8+16*T);
+        for (let i=0;i<stepsPerBar;i++){
+          if (Math.random()>density) continue;
+          const pos = (i/stepsPerBar)*4*spb;
           let t = barStart + pos;
 
           if (isJazz) {
-            const posBeat = (pos / spb) % 1;
-            if (posBeat > 0.5) {
-              t += spb * 0.12 * (0.5 + 0.8 * T);
-            }
+            const posBeat = (pos/spb)%1;
+            if (posBeat>0.5) t += spb*0.12*(0.5+0.8*T);
           }
 
-          let step = Math.floor(Math.random() * scale.length);
-          let midi = scale[step];
-          if (isJazz && Math.random() < 0.4) {
-            midi += (Math.random() < 0.5 ? 1 : -1);
-          }
-          if (T > 0.7 && Math.random() < 0.5) {
-            midi += (Math.random() < 0.5 ? 12 : -12);
-          }
+          let midi = scale[Math.floor(Math.random()*scale.length)];
+          if (isJazz && Math.random()<0.4) midi += (Math.random()<0.5?1:-1);
+          if (T>0.7 && Math.random()<0.5) midi += (Math.random()<0.5?12:-12);
 
           const freq = midiToFreq(midi);
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'square';
-          osc.frequency.setValueAtTime(freq, t);
-
-          const dur = spb * (0.07 + 0.18 * (0.3 + T));
-          const level = 0.04 + 0.08 * (1 - f.reward) * (0.4 + T);
-
-          gain.gain.setValueAtTime(level, t);
-          gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-
-          osc.connect(gain); gain.connect(master);
-          osc.start(t); osc.stop(t + dur + 0.05);
+          const dur = spb*(0.07+0.18*(0.3+T));
+          const amp = 0.04+0.08*(1-f.reward)*(0.4+T);
+          addSine(out, sr, t, dur, freq, amp, 5.0);
         }
       }
     }
 
-    function scheduleGlitchFromDriver(ctx, master, style, f, driverData, sampleRate, form) {
-      if (!driverData || driverData.length === 0) return;
-
+    function addGlitchPCM(out, sr, style, f, form, driverData) {
+      if (!driverData || driverData.length===0) return;
       const spb = 60 / style.bpm;
       const bars = style.bars;
 
-      const minGrain = Math.floor(sampleRate * 0.03);
-      const maxGrain = Math.floor(sampleRate * 0.09);
+      const minGrain = Math.floor(sr*0.03);
+      const maxGrain = Math.floor(sr*0.09);
 
       const grains = [];
-      let ptr = 0;
-      while (ptr + minGrain < driverData.length && grains.length < 300) {
-        const gLen = minGrain + Math.floor(Math.random() * (maxGrain - minGrain));
+      let ptr=0;
+      while(ptr+minGrain<driverData.length && grains.length<300){
+        const gLen = minGrain + Math.floor(Math.random()*(maxGrain-minGrain));
         const g = new Float32Array(gLen);
-        g.set(driverData.subarray(ptr, ptr + gLen));
+        g.set(driverData.subarray(ptr,ptr+gLen));
         grains.push(g);
         ptr += gLen;
       }
-      if (grains.length === 0) return;
+      if (grains.length===0) return;
 
-      for (let bar = 0; bar < bars; bar++) {
-        const { section, tension: T } = form[bar];
-        const barStart = bar * 4 * spb;
+      for (let bar=0; bar<bars; bar++){
+        const {section, tension:T} = form[bar];
+        const barStart = bar*4*spb;
 
         const baseEvents =
-          section === 'intro' ? 2 :
-          section === 'break' ? 4 :
-          section === 'outro' ? 3 :
-          5;
-        const events = Math.round(baseEvents + 10 * T * (1 + (section === 'climax' ? 0.7 : 0)));
+          section==='intro'?2:
+          section==='break'?4:
+          section==='outro'?3:5;
+        const events = Math.round(baseEvents+10*T*(1+(section==='climax'?0.7:0)));
 
-        for (let i = 0; i < events; i++) {
-          const grain = grains[Math.floor(Math.random() * grains.length)];
-          const buf = ctx.createBuffer(1, grain.length, sampleRate);
-          buf.getChannelData(0).set(grain);
-          const src = ctx.createBufferSource();
-          src.buffer = buf;
+        for(let i=0;i<events;i++){
+          const grain = grains[Math.floor(Math.random()*grains.length)];
+          const localPos = Math.random()*4*spb;
+          const t = barStart+localPos;
+          const destStart = timeToIndex(t,sr);
+          const rate = 0.6+1.4*Math.random();
 
-          const localPos = Math.random() * 4 * spb;
-          const t = barStart + localPos;
-          src.playbackRate.value = 0.6 + 1.4 * Math.random();
-
-          const filter = ctx.createBiquadFilter();
-          filter.type = (T > 0.6 ? 'highpass' : 'bandpass');
-          filter.frequency.value = 1200 + 4500 * T;
-          filter.Q.value = 0.7 + 1.5 * T;
-
-          const g = ctx.createGain();
-          g.gain.value = 0.04 + 0.11 * T * (1 - f.reward);
-
-          src.connect(filter); filter.connect(g); g.connect(master);
-          src.start(t);
-          src.stop(t + grain.length / sampleRate / src.playbackRate.value + 0.02);
+          const step = Math.max(1,Math.floor(rate));
+          const len = grain.length;
+          for(let j=0;j<len;j+=step){
+            const idx=destStart+Math.floor(j/step);
+            if(idx>=out.length) break;
+            const env=Math.exp(-4*j/len);
+            out[idx]+=grain[j]*env*(0.04+0.11*T*(1-f.reward));
+          }
         }
       }
     }
 
     /********** 工具函数 **********/
     function makeMinorScale(rootMidi) {
-      const intervals = [0, 2, 3, 5, 7, 8, 10];
-      return intervals.map(i => rootMidi + i);
+      const intervals = [0,2,3,5,7,8,10];
+      return intervals.map(i=>rootMidi+i);
     }
 
     function midiToFreq(midi) {
-      return 440 * Math.pow(2, (midi - 69) / 12);
+      return 440*Math.pow(2,(midi-69)/12);
     }
 
     function normalizeFloat(samples) {
-      let max = 0;
-      for (let i = 0; i < samples.length; i++) {
-        const v = Math.abs(samples[i]);
-        if (v > max) max = v;
+      let max=0;
+      for(let i=0;i<samples.length;i++){
+        const v=Math.abs(samples[i]);
+        if(v>max)max=v;
       }
-      const target = 0.9;
-      const gain = max > 0 && max < target ? (target / max) : 1.0;
-      if (gain === 1.0) return samples;
-      const out = new Float32Array(samples.length);
-      for (let i = 0; i < samples.length; i++) out[i] = samples[i] * gain;
+      const target=0.9;
+      const gain = max>0 && max<target ? (target/max):1.0;
+      if(gain===1.0)return samples;
+      const out=new Float32Array(samples.length);
+      for(let i=0;i<samples.length;i++)out[i]=samples[i]*gain;
       return out;
     }
 
     function makeDistortionCurve(amount) {
-      const k = typeof amount === 'number' ? amount : 50;
-      const n = 44100;
-      const curve = new Float32Array(n);
-      const deg = Math.PI / 180;
-      for (let i = 0; i < n; ++i) {
-        const x = i * 2 / n - 1;
-        curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+      const k=typeof amount==='number'?amount:50;
+      const n=44100;
+      const curve=new Float32Array(n);
+      const deg=Math.PI/180;
+      for(let i=0;i<n;++i){
+        const x=i*2/n-1;
+        curve[i]=(3+k)*x*20*deg/(Math.PI+k*Math.abs(x));
       }
       return curve;
     }
 
     function encodeWAV(samples, sampleRate) {
-      const buffer = new ArrayBuffer(44 + samples.length * 2);
-      const view = new DataView(buffer);
+      const buffer=new ArrayBuffer(44+samples.length*2);
+      const view=new DataView(buffer);
 
-      function writeString(offset, str) {
-        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      function writeString(offset,str){
+        for(let i=0;i<str.length;i++)view.setUint8(offset+i,str.charCodeAt(i));
       }
 
-      const numChannels = 1;
-      const bytesPerSample = 2;
-      const blockAlign = numChannels * bytesPerSample;
-      const byteRate = sampleRate * blockAlign;
+      const numChannels=1;
+      const bytesPerSample=2;
+      const blockAlign=numChannels*bytesPerSample;
+      const byteRate=sampleRate*blockAlign;
 
-      writeString(0, 'RIFF');
-      view.setUint32(4, 36 + samples.length * 2, true);
-      writeString(8, 'WAVE');
+      writeString(0,'RIFF');
+      view.setUint32(4,36+samples.length*2,true);
+      writeString(8,'WAVE');
 
-      writeString(12, 'fmt ');
-      view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true);
-      view.setUint16(22, numChannels, true);
-      view.setUint32(24, sampleRate, true);
-      view.setUint32(28, byteRate, true);
-      view.setUint16(32, blockAlign, true);
-      view.setUint16(34, 16, true);
+      writeString(12,'fmt ');
+      view.setUint32(16,16,true);
+      view.setUint16(20,1,true);
+      view.setUint16(22,numChannels,true);
+      view.setUint32(24,sampleRate,true);
+      view.setUint32(28,byteRate,true);
+      view.setUint16(32,blockAlign,true);
+      view.setUint16(34,16,true);
 
-      writeString(36, 'data');
-      view.setUint32(40, samples.length * 2, true);
+      writeString(36,'data');
+      view.setUint32(40,samples.length*2,true);
 
-      let offset = 44;
-      for (let i = 0; i < samples.length; i++, offset += 2) {
-        let s = samples[i];
-        s = Math.max(-1, Math.min(1, s));
-        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      let offset=44;
+      for(let i=0;i<samples.length;i++,offset+=2){
+        let s=samples[i];
+        s=Math.max(-1,Math.min(1,s));
+        view.setInt16(offset,s<0?s*0x8000:s*0x7fff,true);
       }
-
-      return new Blob([view], { type: 'audio/wav' });
+      return new Blob([view],{type:'audio/wav'});
     }
 
     function startTimer() {
-      recordingStartTime = performance.now();
+      recordingStartTime=performance.now();
       clearInterval(timerInterval);
-      timerInterval = setInterval(() => {
-        const elapsed = (performance.now() - recordingStartTime) / 1000;
-        const m = Math.floor(elapsed / 60);
-        const s = Math.floor(elapsed % 60);
-        elTimer.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-      }, 200);
+      timerInterval=setInterval(()=>{
+        const elapsed=(performance.now()-recordingStartTime)/1000;
+        const m=Math.floor(elapsed/60);
+        const s=Math.floor(elapsed%60);
+        elTimer.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      },200);
     }
 
     function stopTimer() {
       clearInterval(timerInterval);
-      timerInterval = null;
+      timerInterval=null;
     }
 
     function saveGenerated() {
-      if (!batState.generatedBlob) return;
-      const url = URL.createObjectURL(batState.generatedBlob);
-      const a = document.createElement('a');
-      const ts = new Date().toISOString().replace(/[:.]/g, '-');
-      a.href = url;
-      a.download = `bat-hell-music-${ts}.wav`;
+      if(!batState.generatedBlob)return;
+      const url=URL.createObjectURL(batState.generatedBlob);
+      const a=document.createElement('a');
+      const ts=new Date().toISOString().replace(/[:.]/g,'-');
+      a.href=url;
+      a.download=`bat-hell-music-${ts}.wav`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1393,38 +1261,35 @@
     }
 
     async function sharePage() {
-      if (!batState.generatedBlob) return;
-      const shareData = {
-        title: 'Bat-music 实验',
-        text: '我刚刚用呼噜 / 怪声在 Bat-music 里炼出了一段地狱乐曲。',
-        url: window.location.href
+      if(!batState.generatedBlob)return;
+      const shareData={
+        title:'Bat-music 实验',
+        text:'我刚刚用呼噜 / 怪声在 Bat-music 里炼出了一段地狱乐曲。',
+        url:window.location.href
       };
-      if (navigator.share) {
-        try {
-          await navigator.share(shareData);
-        } catch (err) {
-          logDebug('分享失败或被取消: ' + err.message);
-        }
-      } else {
+      if(navigator.share){
+        try{ await navigator.share(shareData); }
+        catch(err){ logDebug('分享失败或被取消: '+err.message); }
+      }else{
         alert('当前浏览器不支持系统分享，请手动复制地址栏链接。');
       }
     }
 
     function showWxMask() {
-      const mask = document.getElementById('wxMask');
-      if (mask) mask.classList.add('show');
+      const mask=document.getElementById('wxMask');
+      if(mask)mask.classList.add('show');
     }
 
     function hideWxMask() {
-      const mask = document.getElementById('wxMask');
-      if (mask) mask.classList.remove('show');
+      const mask=document.getElementById('wxMask');
+      if(mask)mask.classList.remove('show');
     }
 
     function logDebug(msg) {
-      if (!debugConsole) return;
-      const time = new Date().toISOString().split('T')[1].split('.')[0];
-      debugConsole.textContent += `[${time}] ${msg}\n`;
-      debugConsole.scrollTop = debugConsole.scrollHeight;
+      if(!debugConsole)return;
+      const time=new Date().toISOString().split('T')[1].split('.')[0];
+      debugConsole.textContent+=`[${time}] ${msg}\n`;
+      debugConsole.scrollTop=debugConsole.scrollHeight;
     }
   </script>
 </body>
