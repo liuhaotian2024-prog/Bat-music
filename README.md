@@ -381,7 +381,7 @@
         for (let i = 0; i < bufferLength; i++) {
           const v = dataArray[i] / 128.0;
           const y = v * height / 2;
-          if (i === 0) canvasCtx.moveTo(x, y);   // 修复这里：使用 canvasCtx
+          if (i === 0) canvasCtx.moveTo(x, y);
           else canvasCtx.lineTo(x, y);
           x += sliceWidth;
         }
@@ -497,7 +497,8 @@
 
         const composed = composePCM(analysis.features, analysis.styleId, floatData, sampleRate);
         batState.floatData = composed;
-        const wavBlob = encodeWAV(composed, sampleRate);
+        const mastered = applyHellMaster(composed, sampleRate, analysis.styleId, analysis.features);
+        const wavBlob = encodeWAV(mastered, sampleRate);
         batState.generatedBlob = wavBlob;
 
         const url = URL.createObjectURL(wavBlob);
@@ -505,7 +506,7 @@
         elPlayerLayer.classList.add('show');
 
         drawCurrentWave();
-        logDebug('作曲样本数=' + composed.length + ', wavSize=' + wavBlob.size + ' 字节');
+        logDebug('作曲样本数=' + mastered.length + ', wavSize=' + wavBlob.size + ' 字节');
 
         setPhase('generated');
       } catch (err) {
@@ -595,14 +596,14 @@
       };
     }
 
-    /********** PCM 合成作曲核心：EDM 骨架 + 地狱爵士 **********/
+    /********** PCM 合成作曲：EDM 骨架 + 地狱爵士 **********/
     function composePCM(features, styleId, driverData, sampleRate) {
       const style = getHellStyle(styleId, features);
       const spb = 60 / style.bpm;
       const bars = style.bars;
       const beats = bars * 4;
       const totalSeconds = beats * spb;
-      const maxSeconds = 12; // 限制长度
+      const maxSeconds = 12;
       const lengthSeconds = Math.min(totalSeconds, maxSeconds);
       const length = Math.floor(lengthSeconds * sampleRate);
 
@@ -658,11 +659,11 @@
       };
       switch (styleId) {
         case 'hell_metal':
-          return { ...base, styleId, bpm: 150, scaleRoot: 42, drumEnergy: 1.3, leadDensity: 0.8 };
+          return { ...base, styleId, bpm: 152, scaleRoot: 42, drumEnergy: 1.4, leadDensity: 0.8 };
         case 'hell_rock':
-          return { ...base, styleId, bpm: 130, scaleRoot: 45, drumEnergy: 1.0, leadDensity: 0.7 };
+          return { ...base, styleId, bpm: 130, scaleRoot: 45, drumEnergy: 1.1, leadDensity: 0.7 };
         case 'hell_jazz':
-          return { ...base, styleId, bpm: 115, scaleRoot: 50, drumEnergy: 0.8, leadDensity: 0.9 };
+          return { ...base, styleId, bpm: 120, scaleRoot: 50, drumEnergy: 0.9, leadDensity: 1.0 };
         case 'hell_rap':
           return { ...base, styleId, bpm: 92,  scaleRoot: 40, drumEnergy: 0.9, leadDensity: 0.6 };
         case 'hell_ambient':
@@ -677,7 +678,6 @@
         ['intro','build','build','drop','break','drop','break','outro'],
         ['intro','build','drop','drop','drop','break','build','outro']
       ];
-
       let bestForm = null;
       let bestScore = -Infinity;
 
@@ -714,7 +714,7 @@
         if (styleId === 'hell_jazz') {
           styleScore = -Math.abs(meanT-0.6)+0.8*varT;
         } else if (styleId==='hell_metal'||styleId==='hell_rock') {
-          styleScore = -Math.abs(meanT-0.75)+0.5*varT;
+          styleScore = -Math.abs(meanT-0.8)+0.5*varT;
         } else {
           styleScore = -Math.abs(meanT-0.5)+0.3*varT;
         }
@@ -771,21 +771,18 @@
 
         const energyScale=style.drumEnergy*sectionScale*(0.6+0.8*f.rms/0.1)*(0.7+0.6*T);
 
-        // Kick在每个bar的4拍
         if(beatInBar===0){
-          addSine(out,sr,tBase,0.25,50+25*T,0.8*energyScale,4.0);
+          addSine(out,sr,tBase,0.25,50+30*T,0.9*energyScale,4.5);
         }
 
-        // Snare 2/4
         if(beatInBar===1||beatInBar===3){
-          addNoiseHit(out,sr,tBase,0.16,0.45*energyScale,true);
+          addNoiseHit(out,sr,tBase,0.16,0.5*energyScale,true);
         }
 
-        // Hats
         const hatSteps = (T>0.6?4:2);
         for(let i=0;i<hatSteps;i++){
           const hatT=tBase+spb*(i/hatSteps);
-          addNoiseHit(out,sr,hatT,0.05,0.12*energyScale,true);
+          addNoiseHit(out,sr,hatT,0.05,0.14*energyScale,true);
         }
       }
     }
@@ -795,7 +792,7 @@
       const spb=60/style.bpm;
       const beats=style.bars*4;
       const scale=makeMinorScale(style.scaleRoot);
-      const baseStrength=0.22+0.4*f.rms/0.12;
+      const baseStrength=0.25+0.4*f.rms/0.12;
       const isJazz=style.styleId==='hell_jazz';
 
       for(let b=0;b<beats;b++){
@@ -825,7 +822,7 @@
         const amp=baseStrength*(0.7+0.9*T)*m.vel;
 
         addSine(out,sr,t,dur,freq,amp,3.5);
-        addSine(out,sr,t,dur,freq*2,amp*0.25,4.0);
+        addSine(out,sr,t,dur,freq*2,amp*0.3,4.0);
       }
     }
 
@@ -861,19 +858,20 @@
 
         let baseMidi=scale[Math.floor(Math.random()*scale.length)]+m.offset;
         if(section==='drop' || (section==='build' && T>0.6)){
-          baseMidi += (Math.random()<0.5? -1:1); // chromatic
+          baseMidi += (Math.random()<0.5? -1:1);
         }
         if(isJazz && Math.random()<0.4){
-          baseMidi += (Math.random()<0.5?9:-6); // 大跳
+          baseMidi += (Math.random()<0.5?9:-6);
         }
 
         const freq=midiToFreq(baseMidi);
         const dur=(section==='break')
           ? spb*(0.12+0.25*T)
           : spb*(0.18+0.4*(0.5+T));
-        const amp=0.07+0.12*(1-f.reward)*(0.4+T)*m.vel;
+        const amp=0.1+0.15*(1-f.reward)*(0.4+T)*m.vel;
 
         addSine(out,sr,t,dur,freq,amp,4.0);
+        addSine(out,sr,t,dur,freq*2,amp*0.5,5.0);
       }
     }
 
@@ -927,7 +925,7 @@
       const spb=60/style.bpm;
       const bars=style.bars;
       const scale=makeMinorScale(style.scaleRoot+12);
-      const baseDensity=0.4+0.6*(1-f.reward);
+      const baseDensity=style.leadDensity*(0.2+0.5*(1-f.reward));
       const isJazz=style.styleId==='hell_jazz';
 
       for(let bar=0; bar<bars; bar++){
@@ -948,15 +946,15 @@
 
           if(isJazz){
             const posBeat=(pos/spb)%1;
-            if(posBeat>0.5) t+=spb*0.1*(0.5+0.8*T);
+            if(posBeat>0.5)t+=spb*0.1*(0.5+0.8*T);
           }
 
           const motifIdx=(bar*4+i)%Math.max(1,motif.length);
           const m=motif[motifIdx] || {offset:0,vel:0.5};
 
           let midi=scale[Math.floor(Math.random()*scale.length)]+m.offset;
-          if(isJazz && Math.random()<0.3) midi+=(Math.random()<0.5?1:-1);
-          if(T>0.7 && Math.random()<0.5) midi+=(Math.random()<0.5?12:-12);
+          if(isJazz && Math.random()<0.3)midi+=(Math.random()<0.5?1:-1);
+          if(T>0.7 && Math.random()<0.5)midi+=(Math.random()<0.5?12:-12);
 
           const freq=midiToFreq(midi);
           const dur=spb*(0.06+0.16*(0.3+T));
@@ -965,6 +963,42 @@
           addSine(out,sr,t,dur,freq,amp,5.0);
         }
       }
+    }
+
+    /********** Hell Mastering：整体包络 + 强失真 **********/
+    function applyHellMaster(samples, sampleRate, styleId, features) {
+      const n = samples.length;
+      const out = new Float32Array(n);
+      const duration = n / sampleRate;
+
+      let driveBase = 2.5; // 基础失真强度
+      if (styleId === 'hell_metal') driveBase = 4.0;
+      else if (styleId === 'hell_rock') driveBase = 3.0;
+      else if (styleId === 'hell_jazz') driveBase = 2.2;
+      else if (styleId === 'hell_rap') driveBase = 2.8;
+      else driveBase = 2.0;
+
+      for (let i = 0; i < n; i++) {
+        const t = i / sampleRate;
+        const x = samples[i];
+
+        // 全局包络：前 0.5s 渐入，最后 0.5s 渐出
+        let env = 1.0;
+        if (t < 0.5) env *= t / 0.5;
+        if (duration - t < 0.5) env *= (duration - t) / 0.5;
+
+        // 中段加一点起伏（避免“直线”）
+        const mid = t / duration;
+        env *= 0.9 + 0.2 * Math.sin(Math.PI * mid);
+
+        // 驱动强度随整体 Y* 偏离增加（reward 越低越狠）
+        const drive = driveBase * (1 + (1 - features.reward) * 1.5);
+
+        const z = x * env * drive;
+        // Soft clip：地狱但不完全失真墙
+        out[i] = Math.tanh(z);
+      }
+      return normalizeFloat(out);
     }
 
     /********** 工具 **********/
