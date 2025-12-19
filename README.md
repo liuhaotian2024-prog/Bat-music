@@ -30,7 +30,6 @@
       font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     }
 
-    /* 顶部调试条 */
     #debugConsole {
       position: fixed;
       top: 0; left: 0;
@@ -527,7 +526,7 @@
       drawing = false;
     }
 
-    /********** 录音管线 **********/
+    /********** 录音管线（已验证） **********/
     async function startRecording() {
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -621,7 +620,7 @@
       }
     }
 
-    /********** 地狱作曲：噪音场 + 乐音场 + 时间粉碎 **********/
+    /********** 地狱作曲 **********/
     async function generateFromRecording(floatData, sampleRate) {
       try {
         const analysis = analyzeAndDescribe(floatData, sampleRate);
@@ -711,13 +710,13 @@
 
       let mood;
       if (reward > 0.8) {
-        mood = '噪音接近静态场，我会用暗黑和弦与缓慢的粒子，让它变成“阴间交响”的序章。';
+        mood = '噪音接近静态场，我会用暗黑和弦与稀疏的碎片，让它变成“阴间交响”的序章。';
       } else if (reward > 0.5) {
         mood = '噪音在混乱与秩序之间，我会做多段结构，把它写成一首有故事的 ' + styleName + '。';
       } else if (reward > 0.2) {
         mood = '噪音偏躁动，我会在高潮段拉满鼓、贝斯和 Lead，把它推向高压地狱。';
       } else {
-        mood = '噪音极度粗糙，我会彻底打碎时间线，用大量 glitch 粒子写成一段实验性的“地狱碎片乐章”。';
+        mood = '噪音极度粗糙，我会彻底打碎时间线，用大量 glitch 粒子写成实验性的“地狱碎片乐章”。';
       }
 
       const tech =
@@ -733,11 +732,13 @@
       };
     }
 
-    /********** 乐音场作曲 + 段落结构 + 时间粉碎 **********/
+    /********** 乐音场作曲 + 段落结构 + “泛函优化”张力 **********/
     function renderHellComposition(features, styleId, driverData, sampleRate) {
       return new Promise((resolve, reject) => {
         try {
           const style = getHellStyle(styleId, features);
+          style.styleId = styleId;
+
           const spb = 60 / style.bpm;
           const bars = style.bars;
           const beats = bars * 4;
@@ -749,11 +750,11 @@
           master.gain.value = style.masterGain;
           master.connect(offline.destination);
 
-          // 结构：intro / groove / break / climax / outro
-          const form = buildForm(bars, features.reward);
+          // 段落模板 + 张力曲线：用一个简化版“泛函”选择最优方案
+          const form = buildOptimizedForm(bars, features.reward, styleId);
           const tensionCurve = form.map(f => f.tension);
 
-          // 长噪音纹理（背景场）
+          // 背景噪音场
           if (driverData && driverData.length > 0) {
             const driverBuffer = offline.createBuffer(1, length, sampleRate);
             const dest = driverBuffer.getChannelData(0);
@@ -775,15 +776,10 @@
             const g = offline.createGain();
             g.gain.value = style.noiseLevel;
 
-            src.connect(shaper);
-            shaper.connect(filter);
-            filter.connect(g);
-            g.connect(master);
-
+            src.connect(shaper); shaper.connect(filter); filter.connect(g); g.connect(master);
             src.start(0);
           }
 
-          // 鼓 / Bass / Lead / Pad / Arp / Glitch
           scheduleDrums(offline, master, style, features, form);
           scheduleBass(offline, master, style, features, form);
           scheduleLead(offline, master, style, features, form);
@@ -804,73 +800,85 @@
       });
     }
 
-    function buildForm(bars, reward) {
-      // 设计一个 intro-groove-break-climax-outro 的段落分布
-      const form = [];
-      for (let b = 0; b < bars; b++) {
-        const x = b / Math.max(1, bars - 1);
-        let section = 'groove';
-        if (x < 0.2) section = 'intro';
-        else if (x < 0.45) section = 'groove';
-        else if (x < 0.6) section = 'break';
-        else if (x < 0.85) section = 'climax';
-        else section = 'outro';
+    // “泛函优化”的段落生成：在多个模板之间做搜索
+    function buildOptimizedForm(bars, reward, styleId) {
+      const templates = [
+        // 偏 metal/rock：早起 groove，后段高张力
+        ['intro','groove','groove','break','climax','climax','outro'],
+        // 偏 jazz：长 groove + 多个 break / micro-climax
+        ['intro','groove','groove','break','groove','climax','break','climax','outro'],
+        // 偏 ambient：慢起慢落，中间一段高峰
+        ['intro','intro','groove','climax','climax','groove','outro']
+      ];
 
-        // 基线张力：reward 越低整体越高
-        let base = 0.3 + (1 - reward) * 0.4;
-        let bump = 0;
-        if (section === 'intro') bump = 0.1 * x;
-        if (section === 'groove') bump = 0.25 + 0.3 * Math.sin(Math.PI * (x - 0.2) / 0.5);
-        if (section === 'break') bump = 0.2;
-        if (section === 'climax') bump = 0.5;
-        if (section === 'outro') bump = 0.15 * (1 - x);
+      // 将模板按 bars 映射，并计算一个“张力泛函”得分
+      let bestForm = null;
+      let bestScore = -Infinity;
 
-        let tension = base + bump;
-        tension += (Math.random() - 0.5) * 0.15;
-        tension = Math.max(0, Math.min(1, tension));
+      templates.forEach((tpl, idx) => {
+        const form = [];
+        for (let b = 0; b < bars; b++) {
+          const x = b / Math.max(1, bars - 1);
+          const tIdx = Math.floor(x * (tpl.length - 1));
+          const section = tpl[tIdx];
+          let base = 0.3 + (1 - reward) * 0.4;
+          let bump = 0;
+          if (section === 'intro')  bump = 0.1 * x;
+          if (section === 'groove') bump = 0.25;
+          if (section === 'break')  bump = 0.15;
+          if (section === 'climax') bump = 0.5;
+          if (section === 'outro')  bump = 0.15 * (1 - x);
 
-        form.push({ section, tension });
-      }
-      return form;
+          let tension = base + bump;
+          tension += (Math.random() - 0.5) * 0.12;
+          tension = Math.max(0, Math.min(1, tension));
+          form.push({ section, tension });
+        }
+
+        // 计算泛函 J[T]：需要有高潮、有起伏、与 styleId 匹配
+        const ts = form.map(f => f.tension);
+        const meanT = ts.reduce((a,b)=>a+b,0) / ts.length;
+        const varT = ts.reduce((a,b)=>a+Math.pow(b-meanT,2),0) / ts.length;
+        const maxT = Math.max(...ts);
+
+        // 希望高潮在中后段
+        const climaxIndex = ts.indexOf(maxT);
+        const climaxPos = climaxIndex / Math.max(1, ts.length-1);
+        const posScore = 1 - Math.abs(climaxPos - 0.7); // 理想在 70% 左右
+
+        // 风格偏好
+        let styleScore = 0;
+        if (styleId === 'hell_jazz') {
+          // jazz 喜欢中高张力但不过度爆炸、起伏丰富
+          styleScore = -Math.abs(meanT - 0.6) + 0.8 * varT;
+        } else if (styleId === 'hell_metal' || styleId === 'hell_rock') {
+          styleScore = -Math.abs(meanT - 0.75) + 0.5 * varT;
+        } else {
+          styleScore = -Math.abs(meanT - 0.5) + 0.3 * varT;
+        }
+
+        const J = 1.2 * varT + 0.8 * maxT + 0.8 * posScore + styleScore;
+        if (J > bestScore) {
+          bestScore = J;
+          bestForm = form;
+        }
+      });
+
+      return bestForm;
     }
 
-    function getHellStyle(styleId, f) {
-      const base = {
-        masterGain: 0.9,
-        noiseLevel: 0.25 + 0.35 * (1 - f.reward),
-        noiseDist: 80 + 220 * (1 - f.reward),
-        noiseFilterType: 'bandpass',
-        noiseFreq: 1500,
-        noiseQ: 1.4,
-        bars: f.duration > 8 ? 10 : (f.duration > 4 ? 8 : 6)
-      };
-      switch (styleId) {
-        case 'hell_metal':
-          return { ...base, bpm: 145 + 30 * f.reward, scaleRoot: 42, dist: 260, drumEnergy: 1.3, leadDensity: 0.95 };
-        case 'hell_rock':
-          return { ...base, bpm: 130 + 15 * f.reward, scaleRoot: 45, dist: 190, drumEnergy: 1.0, leadDensity: 0.8 };
-        case 'hell_jazz':
-          return { ...base, bpm: 110 + 20 * f.reward, scaleRoot: 48, dist: 120, drumEnergy: 0.75, leadDensity: 0.75 };
-        case 'hell_rap':
-          return { ...base, bpm: 88  + 12 * (1 - f.reward), scaleRoot: 40, dist: 150, drumEnergy: 0.9, leadDensity: 0.6 };
-        case 'hell_ambient':
-        default:
-          return { ...base, bpm: 72  + 22 * f.reward, scaleRoot: 52, dist: 90,  drumEnergy: 0.5, leadDensity: 0.45 };
-      }
-    }
-
-    /********** 鼓 / Bass / Lead / Pad / Arp **********/
+    /********** 乐器层（鼓 / Bass / Lead / Pad / Arp）**********/
     function scheduleDrums(ctx, master, style, f, form) {
       const spb = 60 / style.bpm;
       const beats = style.bars * 4;
+      const swingAmount = (style.styleId === 'hell_jazz') ? 0.18 : 0.0; // 简单 swing
 
       for (let b = 0; b < beats; b++) {
         const barIdx = Math.floor(b / 4);
         const { section, tension: T } = form[barIdx];
-        const t = b * spb;
+        const tBase = b * spb;
         const beatInBar = b % 4;
 
-        // intro/outro 鼓弱一些
         const sectionScale =
           section === 'intro' ? 0.4 :
           section === 'outro' ? 0.6 :
@@ -884,15 +892,22 @@
         if (section !== 'break') {
           if (beatInBar === 0 || beatInBar === 2 ||
               (T > 0.6 && Math.random() < 0.6)) {
+            const t = tBase;
             scheduleKick(ctx, master, t, 55 + T * 25, 0.5 * energyScale);
           }
         } else if (Math.random() < 0.4) {
-          scheduleKick(ctx, master, t, 45 + T * 15, 0.3 * energyScale);
+          scheduleKick(ctx, master, tBase, 45 + T * 15, 0.3 * energyScale);
         }
 
         // snare
         if (beatInBar === 1 || beatInBar === 3) {
           if (section !== 'intro') {
+            let t = tBase;
+            if (style.styleId === 'hell_jazz') {
+              // jazz 风格轻微 swing：后半拍稍微延迟
+              const isBackBeat = (beatInBar === 1 || beatInBar === 3);
+              if (isBackBeat) t += spb * swingAmount;
+            }
             scheduleSnare(ctx, master, t, 0.35 * energyScale);
             if (T > 0.7 && Math.random() < 0.5) {
               scheduleSnare(ctx, master, t - spb * 0.12, 0.13 * energyScale);
@@ -905,9 +920,18 @@
         const hatDensity =
           section === 'intro' ? 1 :
           section === 'break' ? 1 + (T > 0.6 ? 1 : 0) :
+          section === 'outro' ? hatBase :
           hatBase + (T > 0.6 ? 1 : 0);
+
         for (let i = 0; i < hatDensity; i++) {
-          const hatT = t + spb * (i / hatDensity + 0.5 / (hatDensity + 1));
+          let hatT = tBase + spb * (i / hatDensity + 0.5 / (hatDensity + 1));
+          if (style.styleId === 'hell_jazz') {
+            // swing 感：后半部分略向后拖一点
+            const posInBeat = (hatT - tBase) / spb;
+            if (posInBeat > 0.5) {
+              hatT += spb * swingAmount * (0.7 + 0.6 * T);
+            }
+          }
           scheduleHat(ctx, master, hatT, 0.12 * energyScale);
         }
       }
@@ -963,29 +987,48 @@
       const scale = makeMinorScale(style.scaleRoot);
       const baseStrength = 0.18 + 0.4 * f.rms / 0.12;
 
-      for (let b = 0; b < beats; b += 2) {
+      for (let b = 0; b < beats; b++) {
         const barIdx = Math.floor(b / 4);
         const { section, tension: T } = form[barIdx];
-        const t = b * spb;
 
+        // jazz 模式：更像 walking bass，每拍走
+        const isJazz = style.styleId === 'hell_jazz';
+
+        // intro 部分可以空一点
         if (section === 'intro' && Math.random() < 0.5) continue;
 
-        const chordPattern = [0, 5, 3, 4]; // i–VI–IV–v-ish
-        const chordIdx = chordPattern[barIdx % chordPattern.length];
-        const idxBase = chordIdx % scale.length;
-        const leap = T > 0.65 && Math.random() < 0.6 ? (Math.random() < 0.5 ? -2 : 2) : 0;
-        const idx = (idxBase + leap + scale.length) % scale.length;
+        const t = b * spb;
+
+        let idx;
+        if (isJazz) {
+          // walking：上行/下行音阶 + 偶尔 tritone
+          const direction = (Math.random() < 0.5) ? 1 : -1;
+          const step = (Math.random() < 0.2) ? 3 : 1;
+          const baseIdx = (b + (direction>0?0:scale.length)) % scale.length;
+          idx = (baseIdx + direction * step + scale.length) % scale.length;
+          if (Math.random() < 0.1) { // tritone
+            idx = (idx + 3) % scale.length;
+          }
+        } else {
+          const chordPattern = [0, 5, 3, 4];
+          const chordIdx = chordPattern[barIdx % chordPattern.length];
+          const leap = T > 0.65 && Math.random() < 0.6 ? (Math.random() < 0.5 ? -2 : 2) : 0;
+          idx = (chordIdx + leap + scale.length) % scale.length;
+        }
+
         const midi = scale[idx];
         const freq = midiToFreq(midi - 12);
 
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.type = 'sawtooth';
+        osc.type = isJazz ? 'sine' : 'sawtooth';
+
         osc.frequency.setValueAtTime(freq, t);
 
         const dur =
-          section === 'break' ? spb * (0.8 + 0.4 * T) :
-          spb * (1.4 + 0.6 * T);
+          (section === 'break' && !isJazz) ? spb * (0.8 + 0.4 * T) :
+          spb * (isJazz ? 0.9 : (1.4 + 0.6 * T));
+
         const strength = baseStrength * (0.7 + 0.9 * T);
 
         gain.gain.setValueAtTime(strength, t);
@@ -1001,10 +1044,12 @@
       const beats = style.bars * 4;
       const baseScale = makeMinorScale(style.scaleRoot + 12);
       const densityBase = style.leadDensity * (0.3 + 0.7 * f.zcr / 3000);
+      const isJazz = style.styleId === 'hell_jazz';
 
       function pickPitch(scale, T, section) {
         const baseMidi = scale[Math.floor(Math.random() * scale.length)];
         if (section === 'climax' || (section === 'groove' && T > 0.6)) {
+          // jazz / metal 都喜欢半音擦音
           const offset = (Math.random() < 0.5 ? -1 : 1);
           return baseMidi + offset;
         }
@@ -1014,18 +1059,34 @@
       for (let b = 0; b < beats; b++) {
         const barIdx = Math.floor(b / 4);
         const { section, tension: T } = form[barIdx];
+
         let density =
           section === 'intro' ? densityBase * 0.3 :
           section === 'break' ? densityBase * 0.6 :
           section === 'outro' ? densityBase * 0.4 :
-          densityBase * (0.5 + 0.8 * T);
+          densityBase * (0.6 + 0.9 * T);
+
+        if (isJazz) {
+          // jazz：整体稍微密一点，并倾向于 break / climax
+          if (section === 'groove' || section === 'climax') density *= 1.3;
+        }
 
         if (Math.random() > density) continue;
 
-        const t = b * spb + spb * Math.random() * 0.5;
-        const midi = pickPitch(baseScale, T, section);
-        const freq = midiToFreq(midi);
+        const offsetBeat = isJazz && section !== 'intro'
+          ? (Math.random() < 0.7 ? 0.33 : Math.random() * 0.5) // 偏 1/3、切分
+          : Math.random() * 0.5;
 
+        const t = b * spb + spb * offsetBeat;
+
+        let midi = pickPitch(baseScale, T, section);
+        if (isJazz && Math.random() < 0.4) {
+          // jazz：偶尔大跳 6/9 度
+          const bigLeap = Math.random() < 0.5 ? 9 : -6;
+          midi += bigLeap;
+        }
+
+        const freq = midiToFreq(midi);
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
 
@@ -1041,7 +1102,7 @@
         const dur =
           section === 'break' ? spb * (0.15 + 0.25 * T) :
           spb * (0.18 + 0.4 * (0.5 + T));
-        const level = 0.07 + 0.12 * (1 - f.reward) * (0.5 + T);
+        const level = 0.07 + 0.12 * (1 - f.reward) * (0.4 + T);
 
         gain.gain.setValueAtTime(level, t);
         gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
@@ -1055,30 +1116,33 @@
       }
     }
 
-    // 脑补的和弦 Pad（长音铺底）
     function schedulePad(ctx, master, style, f, form) {
       const spb = 60 / style.bpm;
       const bars = style.bars;
-      const scale = makeMinorScale(style.scaleRoot + 5); // 稍微高一点
+      const scale = makeMinorScale(style.scaleRoot + (style.styleId === 'hell_jazz' ? 7 : 5));
       const baseLevel = 0.08 + 0.12 * f.reward;
 
-      const chordPattern = [0, 5, 3, 4]; // 度数模式
+      const chordPatternA = [0, 5, 3, 4]; // A 段
+      const chordPatternB = [2, 4, 6, 1]; // B 段
+      const isJazz = style.styleId === 'hell_jazz';
 
       for (let bar = 0; bar < bars; bar++) {
         const { section, tension: T } = form[bar];
-        if (section === 'break' && Math.random() < 0.5) continue;
+        if (section === 'break' && Math.random() < 0.6) continue;
 
         const barStart = bar * 4 * spb;
-        const chordDegree = chordPattern[bar % chordPattern.length];
+        const usePattern = (section === 'climax' || (isJazz && section === 'break'))
+          ? chordPatternB : chordPatternA;
+        const chordDegree = usePattern[bar % usePattern.length];
         const rootIdx = chordDegree % scale.length;
 
-        // 简单小三和弦 + 加四度/七度
         const chord = [
           scale[rootIdx],
           scale[(rootIdx + 2) % scale.length],
           scale[(rootIdx + 4) % scale.length]
         ];
-        if (T > 0.6) chord.push(scale[(rootIdx + 6) % scale.length]); // 七度擦音
+        if (T > 0.5) chord.push(scale[(rootIdx + 6) % scale.length]); // 7 度
+        if (isJazz && T > 0.6) chord.push(scale[(rootIdx + 1) % scale.length]); // 9 度擦音
 
         const level =
           baseLevel *
@@ -1089,7 +1153,7 @@
         chord.forEach((midi, i) => {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
-          osc.type = 'triangle';
+          osc.type = isJazz ? 'sine' : 'triangle';
           osc.frequency.setValueAtTime(midiToFreq(midi), barStart);
 
           const sustain =
@@ -1097,7 +1161,7 @@
               ? spb * (1.0 + 0.4 * (1 - T))
               : 4 * spb * (0.9 + 0.4 * T);
 
-          const start = barStart + (i * 0.03);
+          const start = barStart + (i * 0.02);
           gain.gain.setValueAtTime(level, start);
           gain.gain.linearRampToValueAtTime(level * 0.7, start + sustain * 0.5);
           gain.gain.exponentialRampToValueAtTime(0.001, start + sustain);
@@ -1108,12 +1172,12 @@
       }
     }
 
-    // 脑补的 Arp：跟随和弦跑的高音跳跃线
     function scheduleArp(ctx, master, style, f, form) {
       const spb = 60 / style.bpm;
       const bars = style.bars;
       const scale = makeMinorScale(style.scaleRoot + 12);
       const baseDensity = 0.4 + 0.6 * (1 - f.reward);
+      const isJazz = style.styleId === 'hell_jazz';
 
       for (let bar = 0; bar < bars; bar++) {
         const { section, tension: T } = form[bar];
@@ -1124,24 +1188,37 @@
           section === 'outro' ? baseDensity * 0.4 :
           baseDensity * (0.6 + 0.7 * T);
 
-        const stepsPerBar = Math.round(8 + 16 * T); // T 越高，越密
+        if (isJazz && (section === 'groove' || section === 'climax')) {
+          density *= 1.3;
+        }
+
+        const stepsPerBar = Math.round(8 + 16 * T);
 
         for (let i = 0; i < stepsPerBar; i++) {
           if (Math.random() > density) continue;
 
           const pos = (i / stepsPerBar) * 4 * spb;
-          const t = barStart + pos;
+          let t = barStart + pos;
 
-          const step = Math.floor(Math.random() * scale.length);
+          if (isJazz) {
+            const posBeat = (pos / spb) % 1;
+            if (posBeat > 0.5) {
+              t += spb * 0.12 * (0.5 + 0.8 * T);
+            }
+          }
+
+          let step = Math.floor(Math.random() * scale.length);
           let midi = scale[step];
+          if (isJazz && Math.random() < 0.4) {
+            midi += (Math.random() < 0.5 ? 1 : -1); // chromatic
+          }
           if (T > 0.7 && Math.random() < 0.5) {
-            midi += (Math.random() < 0.5 ? 12 : -12); // 大跳一八度
+            midi += (Math.random() < 0.5 ? 12 : -12);
           }
 
           const freq = midiToFreq(midi);
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
-
           osc.type = 'square';
           osc.frequency.setValueAtTime(freq, t);
 
@@ -1216,7 +1293,7 @@
       }
     }
 
-    /********** 工具：音阶 / WAV / Normalize / 调试 **********/
+    /********** 工具函数 **********/
     function makeMinorScale(rootMidi) {
       const intervals = [0, 2, 3, 5, 7, 8, 10];
       return intervals.map(i => rootMidi + i);
