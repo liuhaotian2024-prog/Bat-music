@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <title>Bat-music · 从呼噜到地狱作曲（PCM版）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
   <style>
     :root {
       --bg-main: #050608;
@@ -18,230 +17,100 @@
       --text-muted: #8c8f98;
       --radius-lg: 10px;
     }
-
     * { box-sizing: border-box; }
-
     html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      background: var(--bg-main);
-      color: var(--text-main);
+      margin: 0; padding: 0; height: 100%;
+      background: var(--bg-main); color: var(--text-main);
       font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     }
-
     #debugConsole {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%;
-      min-height: 18px;
-      max-height: 80px;
-      background: #200;
-      color: #ff6b6b;
-      font-size: 10px;
-      font-family: monospace;
-      z-index: 999;
-      display: block;
-      padding: 2px 6px;
-      overflow-y: auto;
-      white-space: pre-wrap;
+      position: fixed; top: 0; left: 0; width: 100%;
+      min-height: 18px; max-height: 80px;
+      background: #200; color: #ff6b6b;
+      font-size: 10px; font-family: monospace;
+      z-index: 999; display: block;
+      padding: 2px 6px; overflow-y: auto; white-space: pre-wrap;
     }
-
     .app {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      padding-top: 80px;
-      box-sizing: border-box;
+      display: flex; flex-direction: column; height: 100vh;
+      padding-top: 80px; box-sizing: border-box;
     }
-
     .stage {
-      position: relative;
-      flex: 1 1 auto;
-      min-height: 200px;
+      position: relative; flex: 1 1 auto; min-height: 200px;
       background: radial-gradient(circle at top, #1a1c24 0, var(--bg-stage) 55%);
-      border-bottom: 1px solid var(--border-soft);
-      overflow: hidden;
+      border-bottom: 1px solid var(--border-soft); overflow: hidden;
     }
-
-    .wave-canvas {
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-
+    .wave-canvas { width: 100%; height: 100%; display: block; }
     .center-status {
-      position: absolute;
-      top: 50%; left: 50%;
+      position: absolute; top: 50%; left: 50%;
       transform: translate(-50%, -50%);
-      text-align: center;
-      pointer-events: none;
+      text-align: center; pointer-events: none;
     }
-
     .timer {
-      font-size: 36px;
-      font-weight: 600;
-      font-family: monospace;
-      letter-spacing: 0.06em;
+      font-size: 36px; font-weight: 600;
+      font-family: monospace; letter-spacing: 0.06em;
     }
-
-    .status-text {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-top: 8px;
-    }
-
+    .status-text { font-size: 13px; color: var(--text-muted); margin-top: 8px; }
     .status-badge-row {
-      position: absolute;
-      left: 12px;
-      top: 12px;
-      display: flex;
-      gap: 6px;
-      font-size: 10px;
+      position: absolute; left: 12px; top: 12px;
+      display: flex; gap: 6px; font-size: 10px;
     }
-
     .status-badge {
-      padding: 2px 6px;
-      border-radius: 999px;
+      padding: 2px 6px; border-radius: 999px;
       background: rgba(0,0,0,0.35);
       border: 1px solid rgba(255,255,255,0.08);
       color: #999;
     }
-
     .status-badge--active {
-      color: #fff;
-      border-color: var(--accent-primary);
+      color: #fff; border-color: var(--accent-primary);
       box-shadow: 0 0 10px rgba(0,122,255,0.5);
     }
-
     .summary {
       padding: 10px 14px 6px;
       background: var(--bg-panel);
       border-bottom: 1px solid var(--border-soft);
-      font-size: 13px;
-      color: var(--text-muted);
+      font-size: 13px; color: var(--text-muted);
     }
-
-    .summary-title {
-      font-size: 12px;
-      color: #aaa;
-      margin-bottom: 4px;
-    }
-
-    .summary-text {
-      font-size: 13px;
-      color: #f5f5f5;
-      line-height: 1.4;
-      min-height: 2.6em;
-    }
-
+    .summary-title { font-size: 12px; color: #aaa; margin-bottom: 4px; }
+    .summary-text { font-size: 13px; color: #f5f5f5; line-height: 1.4; min-height: 2.6em; }
     .controls {
-      flex: 0 0 auto;
-      background: var(--bg-panel);
-      padding: 10px 12px 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
+      flex: 0 0 auto; background: var(--bg-panel);
+      padding: 10px 12px 14px; display: flex;
+      flex-direction: column; gap: 10px;
     }
-
     #playerLayer {
-      max-height: 0;
-      opacity: 0;
-      overflow: hidden;
+      max-height: 0; opacity: 0; overflow: hidden;
       transition: max-height .25s ease, opacity .25s ease;
-      background: #181a20;
-      border-radius: var(--radius-lg);
+      background: #181a20; border-radius: var(--radius-lg);
       border: 1px solid transparent;
     }
-
-    #playerLayer.show {
-      max-height: 90px;
-      opacity: 1;
-      border-color: var(--border-soft);
-    }
-
-    #audioPlayer {
-      width: 100%;
-      display: block;
-      height: 44px;
-      outline: none;
-    }
-
-    .btn-row {
-      display: flex;
-      gap: 8px;
-      margin-top: 4px;
-    }
-
+    #playerLayer.show { max-height: 90px; opacity: 1; border-color: var(--border-soft); }
+    #audioPlayer { width: 100%; display: block; height: 44px; outline: none; }
+    .btn-row { display: flex; gap: 8px; margin-top: 4px; }
     button {
-      flex: 1;
-      border: none;
-      border-radius: var(--radius-lg);
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      padding: 10px 4px;
+      flex: 1; border: none; border-radius: var(--radius-lg);
+      font-size: 14px; font-weight: 600;
+      cursor: pointer; padding: 10px 4px;
       transition: transform .08s ease, opacity .12s ease, box-shadow .12s ease;
     }
-
-    button:active {
-      opacity: 0.85;
-      transform: translateY(1px);
-    }
-
-    button:disabled {
-      background: #222;
-      color: #555;
-      cursor: default;
-      box-shadow: none;
-    }
-
-    .btn-rec {
-      background: var(--accent-record);
-      color: #fff;
-    }
-
-    .btn-stop-gen {
-      background: #3a3a3c;
-      color: #fefefe;
-    }
-
-    .btn-save {
-      background: var(--accent-ok);
-      color: #000;
-    }
-
-    .btn-share {
-      background: #2c2c30;
-      color: var(--text-muted);
-    }
-
-    .btn-rec.recording {
-      box-shadow: 0 0 16px rgba(255,59,48,0.7);
-    }
-
+    button:active { opacity: 0.85; transform: translateY(1px); }
+    button:disabled { background: #222; color: #555; cursor: default; box-shadow: none; }
+    .btn-rec { background: var(--accent-record); color: #fff; }
+    .btn-stop-gen { background: #3a3a3c; color: #fefefe; }
+    .btn-save { background: var(--accent-ok); color: #000; }
+    .btn-share { background: #2c2c30; color: var(--text-muted); }
+    .btn-rec.recording { box-shadow: 0 0 16px rgba(255,59,48,0.7); }
     #wxMask {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.9);
-      z-index: 1000;
-      display: none;
-      justify-content: center;
-      align-items: center;
-      text-align: center;
-      padding: 24px;
-      color: #fff;
+      position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+      z-index: 1000; display: none;
+      justify-content: center; align-items: center;
+      text-align: center; padding: 24px; color: #fff;
     }
-
     #wxMask.show { display: flex; }
-
     .wxMask-content {
-      max-width: 320px;
-      font-size: 14px;
-      line-height: 1.5;
-      opacity: 0.95;
+      max-width: 320px; font-size: 14px;
+      line-height: 1.5; opacity: 0.95;
     }
-
     @media (max-height: 640px) {
       .timer { font-size: 30px; }
       .controls { padding-bottom: 10px; }
@@ -512,7 +381,7 @@
         for (let i = 0; i < bufferLength; i++) {
           const v = dataArray[i] / 128.0;
           const y = v * height / 2;
-          if (i === 0) ctx.moveTo(x, y);
+          if (i === 0) canvasCtx.moveTo(x, y);   // 修复这里：使用 canvasCtx
           else canvasCtx.lineTo(x, y);
           x += sliceWidth;
         }
@@ -526,7 +395,7 @@
       drawing = false;
     }
 
-    /********** 录音管线（稳定版） **********/
+    /********** 录音管线 **********/
     async function startRecording() {
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -726,37 +595,31 @@
       };
     }
 
-    /********** PCM 合成作曲核心：EDM 骨架 + 地狱爵士调味 **********/
+    /********** PCM 合成作曲核心：EDM 骨架 + 地狱爵士 **********/
     function composePCM(features, styleId, driverData, sampleRate) {
       const style = getHellStyle(styleId, features);
       const spb = 60 / style.bpm;
       const bars = style.bars;
       const beats = bars * 4;
       const totalSeconds = beats * spb;
-      const maxSeconds = 12; // 限制长度，避免太长
+      const maxSeconds = 12; // 限制长度
       const lengthSeconds = Math.min(totalSeconds, maxSeconds);
       const length = Math.floor(lengthSeconds * sampleRate);
 
       const out = new Float32Array(length);
 
-      // 1. 从噪音场导出 motif：16 个时间片 → 音高偏移 + 力度
       const motif = deriveMotifFromNoise(driverData || batState.floatData, sampleRate, 16);
-
-      // 2. 构造段落结构 + 张力曲线（简化的泛函优化）
       const form = buildOptimizedForm(bars, features.reward, styleId);
 
-      // 3. 在 PCM 上作曲：鼓 / Bass / Lead / Pad / Arp
       addDrumsPCM(out, sampleRate, style, features, form);
       addBassPCM(out, sampleRate, style, features, form, motif);
       addLeadPCM(out, sampleRate, style, features, form, motif);
       addPadPCM(out, sampleRate, style, features, form, motif);
       addArpPCM(out, sampleRate, style, features, form, motif);
 
-      // 不再留下原始噪音 & glitch：完全退相干为乐音
       return normalizeFloat(out);
     }
 
-    // 根据噪音导出 16 个 motif 点：每段给一个 offset + velocity
     function deriveMotifFromNoise(data, sr, steps) {
       if (!data || data.length === 0) return [];
       const n = data.length;
@@ -766,24 +629,18 @@
         const start = s * segLen;
         const end = (s === steps-1) ? n : Math.min(n, (s+1)*segLen);
         if (end <= start) break;
-        let absSum = 0;
-        let sqSum = 0;
-        let zeroCross = 0;
+        let absSum = 0, sqSum = 0, zeroCross = 0;
         for (let i = start; i < end; i++) {
           const v = data[i];
           absSum += Math.abs(v);
           sqSum += v * v;
-          if (i>start && ((data[i-1]>0 && v<=0) || (data[i-1]<0 && v>=0))) zeroCross++;
+          if (i>start && ((data[i-1]>0 && v<=0)||(data[i-1]<0 && v>=0))) zeroCross++;
         }
-        const len = end-start;
+        const len = end - start;
         const meanAbs = absSum / len;
-        const rms = Math.sqrt(sqSum/len);
+        const rms = Math.sqrt(sqSum / len);
         const localZCR = zeroCross / len * sr;
-
-        // 振幅 → 力度（0.2~1.0）
         const vel = Math.min(1, Math.max(0.2, meanAbs*10));
-
-        // 局部复杂度 → 音高偏移（-3..+3）
         let offset = 0;
         if (localZCR > 2500) offset = 3;
         else if (localZCR > 1800) offset = 2;
@@ -814,7 +671,6 @@
       }
     }
 
-    // “泛函优化”的段落结构：在多个模板中选张力曲线
     function buildOptimizedForm(bars, reward, styleId) {
       const templates = [
         ['intro','build','build','drop','drop','break','drop','outro'],
@@ -869,7 +725,7 @@
       return bestForm;
     }
 
-    /********** PCM 工具：时间 → 样本 / 合成原语 **********/
+    /********** PCM 原语 **********/
     function timeToIndex(t, sr){ return Math.floor(t*sr); }
 
     function addSine(out,sr,tStart,dur,freq,amp,decay=3.0){
@@ -898,12 +754,10 @@
       }
     }
 
-    /********** 鼓：四拍踩地板的 EDM 骨架 **********/
+    /********** 鼓 **********/
     function addDrumsPCM(out,sr,style,f,form){
       const spb=60/style.bpm;
       const beats=style.bars*4;
-      const isJazz = style.styleId==='hell_jazz';
-
       for(let b=0;b<beats;b++){
         const barIdx=Math.floor(b/4);
         const {section,tension:T}=form[barIdx];
@@ -917,35 +771,26 @@
 
         const energyScale=style.drumEnergy*sectionScale*(0.6+0.8*f.rms/0.1)*(0.7+0.6*T);
 
-        // Kick: 真正 EDM 四拍
-        if(section!=='break' || Math.random()<0.7){
-          if(beatInBar===0){
-            addSine(out,sr,tBase,0.25,50+25*T,0.8*energyScale,4.0);
-            // 轻微 sidechain 感可通过后面 bass 的包络来体现
-          }
+        // Kick在每个bar的4拍
+        if(beatInBar===0){
+          addSine(out,sr,tBase,0.25,50+25*T,0.8*energyScale,4.0);
         }
 
-        // Snare/Clap: 2 和 4
+        // Snare 2/4
         if(beatInBar===1||beatInBar===3){
-          const t=tBase;
-          const amp=0.45*energyScale;
-          addNoiseHit(out,sr,t,0.16,amp,true);
+          addNoiseHit(out,sr,tBase,0.16,0.45*energyScale,true);
         }
 
-        // Hats: 8 分 / 16 分
+        // Hats
         const hatSteps = (T>0.6?4:2);
         for(let i=0;i<hatSteps;i++){
-          let hatT=tBase+spb*(i/hatSteps);
-          if(isJazz){
-            const pos=(hatT-tBase)/spb;
-            if(pos>0.5)hatT+=spb*0.12*(0.5+0.8*T);
-          }
+          const hatT=tBase+spb*(i/hatSteps);
           addNoiseHit(out,sr,hatT,0.05,0.12*energyScale,true);
         }
       }
     }
 
-    /********** Bass：EDM/爵士融合 **********/
+    /********** Bass **********/
     function addBassPCM(out,sr,style,f,form,motif){
       const spb=60/style.bpm;
       const beats=style.bars*4;
@@ -956,19 +801,17 @@
       for(let b=0;b<beats;b++){
         const barIdx=Math.floor(b/4);
         const {section,tension:T}=form[barIdx];
-
-        if(section==='intro' && Math.random()<0.5) continue;
+        if(section==='intro' && Math.random()<0.5)continue;
 
         const t=b*spb;
-        // 取 motif 的一个点作为当前 bar 的根音偏移
-        const motifIdx = (barIdx*4 + b)%Math.max(1,motif.length);
-        const m = motif[motifIdx] || {offset:0,vel:0.6};
+        const motifIdx=(barIdx*4+b)%Math.max(1,motif.length);
+        const m=motif[motifIdx] || {offset:0,vel:0.6};
 
         let idx;
         if(isJazz){
-          const baseIdx=(b+scale.length)%scale.length;
           const direction=(Math.random()<0.5)?1:-1;
           const step=(Math.random()<0.2)?3:1;
+          const baseIdx=(b+scale.length)%scale.length;
           idx=(baseIdx+direction*step+m.offset+scale.length)%scale.length;
         }else{
           const chordPattern=[0,5,3,4];
@@ -986,7 +829,7 @@
       }
     }
 
-    /********** Lead：基于 motif 的主旋律 **********/
+    /********** Lead **********/
     function addLeadPCM(out,sr,style,f,form,motif){
       const spb=60/style.bpm;
       const beats=style.bars*4;
@@ -1008,35 +851,33 @@
         if(isJazz && (section==='build'||section==='drop')) density *= 1.3;
         if(Math.random()>density) continue;
 
-        const motifIdx = (b + barIdx*3) % Math.max(1,motif.length);
-        const m = motif[motifIdx] || {offset:0,vel:0.6};
+        const motifIdx=(b+barIdx*3)%Math.max(1,motif.length);
+        const m=motif[motifIdx] || {offset:0,vel:0.6};
 
         const offsetBeat = isJazz && section!=='intro'
-          ? (Math.random()<0.7 ? 0.33 : Math.random()*0.5)
+          ? (Math.random()<0.7?0.33:Math.random()*0.5)
           : Math.random()*0.5;
-        const t = b*spb+spb*offsetBeat;
+        const t=b*spb+spb*offsetBeat;
 
-        let baseMidi = scale[Math.floor(Math.random()*scale.length)];
-        baseMidi += m.offset;
-
+        let baseMidi=scale[Math.floor(Math.random()*scale.length)]+m.offset;
         if(section==='drop' || (section==='build' && T>0.6)){
           baseMidi += (Math.random()<0.5? -1:1); // chromatic
         }
         if(isJazz && Math.random()<0.4){
-          baseMidi += (Math.random()<0.5? 9:-6); // 大跳
+          baseMidi += (Math.random()<0.5?9:-6); // 大跳
         }
 
         const freq=midiToFreq(baseMidi);
-        const dur = (section==='break')
+        const dur=(section==='break')
           ? spb*(0.12+0.25*T)
           : spb*(0.18+0.4*(0.5+T));
-        const amp = 0.07+0.12*(1-f.reward)*(0.4+T)*m.vel;
+        const amp=0.07+0.12*(1-f.reward)*(0.4+T)*m.vel;
 
         addSine(out,sr,t,dur,freq,amp,4.0);
       }
     }
 
-    /********** Pad：和声场 **********/
+    /********** Pad **********/
     function addPadPCM(out,sr,style,f,form,motif){
       const spb=60/style.bpm;
       const bars=style.bars;
@@ -1048,20 +889,20 @@
 
       for(let bar=0; bar<bars; bar++){
         const {section,tension:T}=form[bar];
-        if(section==='break' && Math.random()<0.6) continue;
+        if(section==='break' && Math.random()<0.6)continue;
 
         const barStart=bar*4*spb;
-        const usePattern = (section==='drop' || (isJazz && section==='build'))
+        const usePattern=(section==='drop' || (isJazz && section==='build'))
           ? chordPatternB : chordPatternA;
-        const motifIdx = bar % Math.max(1,motif.length);
-        const baseDeg = usePattern[bar%usePattern.length] + (motif[motifIdx]?.offset||0);
-        const rootIdx = ((baseDeg%scale.length)+scale.length)%scale.length;
+        const motifIdx=bar%Math.max(1,motif.length);
+        const baseDeg=usePattern[bar%usePattern.length]+(motif[motifIdx]?.offset||0);
+        const rootIdx=((baseDeg%scale.length)+scale.length)%scale.length;
 
         const chord=[scale[rootIdx],
                      scale[(rootIdx+2)%scale.length],
                      scale[(rootIdx+4)%scale.length]];
-        if(T>0.5) chord.push(scale[(rootIdx+6)%scale.length]); // 7 度
-        if(isJazz && T>0.6) chord.push(scale[(rootIdx+1)%scale.length]); // 9 度擦音
+        if(T>0.5) chord.push(scale[(rootIdx+6)%scale.length]);
+        if(isJazz && T>0.6) chord.push(scale[(rootIdx+1)%scale.length]);
 
         const level=
           baseLevel *
@@ -1069,10 +910,9 @@
           (0.5+0.8*(1-f.reward)) *
           (0.7+0.6*T);
 
-        const sustain =
-          section==='break'
-            ? spb*(1.0+0.4*(1-T))
-            : 4*spb*(0.9+0.4*T);
+        const sustain=(section==='break'
+          ? spb*(1.0+0.4*(1-T))
+          : 4*spb*(0.9+0.4*T));
 
         chord.forEach((midi,i)=>{
           const freq=midiToFreq(midi);
@@ -1082,7 +922,7 @@
       }
     }
 
-    /********** Arp：补充高频电音感 **********/
+    /********** Arp **********/
     function addArpPCM(out,sr,style,f,form,motif){
       const spb=60/style.bpm;
       const bars=style.bars;
@@ -1108,11 +948,11 @@
 
           if(isJazz){
             const posBeat=(pos/spb)%1;
-            if(posBeat>0.5)t+=spb*0.1*(0.5+0.8*T);
+            if(posBeat>0.5) t+=spb*0.1*(0.5+0.8*T);
           }
 
-          const motifIdx = (bar*4+i)%Math.max(1,motif.length);
-          const m = motif[motifIdx] || {offset:0,vel:0.5};
+          const motifIdx=(bar*4+i)%Math.max(1,motif.length);
+          const m=motif[motifIdx] || {offset:0,vel:0.5};
 
           let midi=scale[Math.floor(Math.random()*scale.length)]+m.offset;
           if(isJazz && Math.random()<0.3) midi+=(Math.random()<0.5?1:-1);
@@ -1127,7 +967,7 @@
       }
     }
 
-    /********** 工具：音阶 / 归一化 / 编码 WAV **********/
+    /********** 工具 **********/
     function makeMinorScale(rootMidi){
       const intervals=[0,2,3,5,7,8,10];
       return intervals.map(i=>rootMidi+i);
@@ -1189,7 +1029,6 @@
       return new Blob([view],{type:'audio/wav'});
     }
 
-    /********** 计时 / 保存 / 分享 / 调试 **********/
     function startTimer(){
       recordingStartTime=performance.now();
       clearInterval(timerInterval);
