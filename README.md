@@ -30,7 +30,7 @@
       font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     }
 
-    /* 顶部调试条：这次默认显示，方便排错 */
+    /* 顶部调试条：默认打开，方便排错与观察 */
     #debugConsole {
       position: fixed;
       top: 0; left: 0;
@@ -331,7 +331,7 @@
     /********** 初始化 **********/
     window.addEventListener('DOMContentLoaded', () => {
       debugConsole = document.getElementById('debugConsole');
-      logDebug('页面初始化 DOMContentLoaded');
+      logDebug('DOMContentLoaded');
 
       elCanvas = document.getElementById('waveCanvas');
       canvasCtx = elCanvas.getContext('2d');
@@ -366,11 +366,11 @@
 
     function attachEvents() {
       btnRecord.addEventListener('click', () => {
-        logDebug('点击：开始录音');
+        logDebug('点击开始录音');
         startRecording();
       });
       btnStopGen.addEventListener('click', () => {
-        logDebug('点击：停止并生成乐曲');
+        logDebug('点击停止并生成乐曲');
         stopAndGenerate();
       });
       btnSave.addEventListener('click', saveGenerated);
@@ -527,7 +527,7 @@
       drawing = false;
     }
 
-    /********** 录音：ScriptProcessor 版（你之前确认可用的结构） **********/
+    /********** 录音管线（已验证可用） **********/
     async function startRecording() {
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -553,7 +553,7 @@
 
         processor = audioContext.createScriptProcessor(4096, 1, 1);
         sourceNode.connect(processor);
-        processor.connect(audioContext.destination); // 必须连 destination 才会触发回调
+        processor.connect(audioContext.destination);
 
         recordedBuffers = [];
         recordingLength = 0;
@@ -621,7 +621,7 @@
       }
     }
 
-    /********** 地狱作曲核心：噪音场 + 乐音场 **********/
+    /********** 地狱作曲：噪音场 + 乐音场 + 时间线粉碎 **********/
     async function generateFromRecording(floatData, sampleRate) {
       try {
         const analysis = analyzeAndDescribe(floatData, sampleRate);
@@ -657,7 +657,7 @@
       }
     }
 
-    // 噪音场分析 + Y* 张力 → 风格选择
+    // 噪音场分析 + Y* 张力（reward）→ 风格 + 特征
     function analyzeAndDescribe(data, sampleRate) {
       const n = data.length;
       if (n === 0) {
@@ -684,6 +684,7 @@
       const rms = Math.sqrt(sqSum / n);
       const zcr = zeroCross / n * sampleRate;
 
+      // Y*：理想助眠场；reward 越低，说明“地狱噪音成分”越重
       const yStar = { rms: 0.02, zcr: 500 };
       const er = Math.abs(rms - yStar.rms) / (yStar.rms + 1e-6);
       const ez = Math.abs(zcr - yStar.zcr) / (yStar.zcr + 1e-6);
@@ -711,13 +712,13 @@
 
       let mood;
       if (reward > 0.8) {
-        mood = '噪音非常接近平静态，我会在乐音场里给它铺一层冷冥的和弦，让它变成“阴间交响”。';
+        mood = '噪音接近静态场，我会用大跨度但稀疏的和弦，让它变成“阴间交响”的底色。';
       } else if (reward > 0.5) {
-        mood = '噪音在混乱与秩序之间，我会把它变成一段有起伏的 ' + styleName + ' 段落。';
+        mood = '噪音在混乱与秩序之间，我会用适中密度的鼓和贝斯，让乐曲像一场危险的梦境。';
       } else if (reward > 0.2) {
-        mood = '噪音偏躁动，我会强化鼓和贝斯，让它变成攻击性很强的 ' + styleName + '。';
+        mood = '噪音偏躁动，我会把节奏和 Lead 推向高张力区，形成攻击性很强的 ' + styleName + '。';
       } else {
-        mood = '噪音极度粗糙，我会尽量保留失真，把它变成一段实验性的地狱声响。';
+        mood = '噪音极度粗糙，我会强行把时间线粉碎重组，让它变成一段实验性“地狱碎片乐章”。';
       }
 
       const tech =
@@ -733,24 +734,26 @@
       };
     }
 
-    // 乐音场作曲：鼓 + 贝斯 + Lead + 噪音纹理
+    /********** 乐音场作曲 + 时间线粉碎 **********/
     function renderHellComposition(features, styleId, driverData, sampleRate) {
       return new Promise((resolve, reject) => {
         try {
           const style = getHellStyle(styleId, features);
-          const secondsPerBeat = 60 / style.bpm;
+          const spb = 60 / style.bpm;
           const bars = style.bars;
           const beats = bars * 4;
-          const totalSeconds = beats * secondsPerBeat;
+          const totalSeconds = beats * spb;
           const length = Math.floor(totalSeconds * sampleRate);
 
           const offline = new OfflineAudioContext(1, length, sampleRate);
-
           const master = offline.createGain();
           master.gain.value = style.masterGain;
           master.connect(offline.destination);
 
-          // 噪音纹理
+          // 根据 Y* reward 构造每小节的张力曲线 T(b)
+          const tensionCurve = buildTensionCurve(bars, features.reward);
+
+          // 1. 噪音纹理：长背景层
           if (driverData && driverData.length > 0) {
             const driverBuffer = offline.createBuffer(1, length, sampleRate);
             const dest = driverBuffer.getChannelData(0);
@@ -780,10 +783,15 @@
             src.start(0);
           }
 
-          // 鼓 / 贝斯 / Lead
-          scheduleDrums(offline, master, style, features);
-          scheduleBass(offline, master, style, features);
-          scheduleLead(offline, master, style, features);
+          // 2. 鼓 / 贝斯 / Lead （受每小节 T(b) 调制）
+          scheduleDrums(offline, master, style, features, tensionCurve);
+          scheduleBass(offline, master, style, features, tensionCurve);
+          scheduleLead(offline, master, style, features, tensionCurve);
+
+          // 3. 时间线粉碎的 glitch 层：从原始噪音中抓 grain 重排
+          scheduleGlitchFromDriver(
+            offline, master, style, features, driverData, sampleRate, tensionCurve
+          );
 
           offline.startRendering().then(buffer => {
             const out = new Float32Array(buffer.length);
@@ -798,54 +806,80 @@
       });
     }
 
+    function buildTensionCurve(bars, reward) {
+      // 这里可以看成一个简单的泛函：我们希望张力曲线从低 → 高 → 释放
+      // reward 越低，整体越“地狱”，基线张力越高
+      const base = 0.3 + (1 - reward) * 0.5; // 0.3~0.8
+      const curve = [];
+      for (let b = 0; b < bars; b++) {
+        const phase = Math.sin(Math.PI * b / Math.max(1, bars - 1));
+        let t = base * (0.7 + 0.6 * phase); // 中间段张力更高
+        t += (Math.random() - 0.5) * 0.15;  // 小扰动
+        t = Math.max(0, Math.min(1, t));
+        curve.push(t);
+      }
+      return curve;
+    }
+
     function getHellStyle(styleId, f) {
       const base = {
         masterGain: 0.9,
-        noiseLevel: 0.35 + 0.35 * (1 - f.reward),
-        noiseDist: 80 + 200 * (1 - f.reward),
+        noiseLevel: 0.28 + 0.35 * (1 - f.reward),
+        noiseDist: 80 + 220 * (1 - f.reward),
         noiseFilterType: 'bandpass',
         noiseFreq: 1500,
-        noiseQ: 1.2,
-        bars: f.duration > 5 ? 8 : 4
+        noiseQ: 1.4,
+        bars: f.duration > 6 ? 8 : 4
       };
       switch (styleId) {
         case 'hell_metal':
-          return { ...base, bpm: 150 + 40 * f.reward, scaleRoot: 42, dist: 220, drumEnergy: 1.2, leadDensity: 0.9 };
+          return { ...base, bpm: 150 + 40 * f.reward, scaleRoot: 42, dist: 250, drumEnergy: 1.3, leadDensity: 0.9 };
         case 'hell_rock':
-          return { ...base, bpm: 130 + 20 * f.reward, scaleRoot: 45, dist: 160, drumEnergy: 1.0, leadDensity: 0.7 };
+          return { ...base, bpm: 130 + 20 * f.reward, scaleRoot: 45, dist: 180, drumEnergy: 1.0, leadDensity: 0.75 };
         case 'hell_jazz':
-          return { ...base, bpm: 115 + 10 * f.reward, scaleRoot: 48, dist: 90,  drumEnergy: 0.7, leadDensity: 0.6 };
+          return { ...base, bpm: 115 + 15 * f.reward, scaleRoot: 48, dist: 110, drumEnergy: 0.75, leadDensity: 0.7 };
         case 'hell_rap':
-          return { ...base, bpm: 90  + 15 * (1 - f.reward), scaleRoot: 40, dist: 120, drumEnergy: 0.9, leadDensity: 0.5 };
+          return { ...base, bpm: 90  + 15 * (1 - f.reward), scaleRoot: 40, dist: 140, drumEnergy: 0.9, leadDensity: 0.55 };
         case 'hell_ambient':
         default:
-          return { ...base, bpm: 70  + 20 * f.reward, scaleRoot: 52, dist: 70,  drumEnergy: 0.4, leadDensity: 0.3 };
+          return { ...base, bpm: 70  + 25 * f.reward, scaleRoot: 52, dist: 80,  drumEnergy: 0.45, leadDensity: 0.4 };
       }
     }
 
-    /***** 鼓 / Bass / Lead 排布 *****/
-    function scheduleDrums(ctx, master, style, f) {
+    /********** 鼓 / Bass / Lead：受张力曲线调制 **********/
+    function scheduleDrums(ctx, master, style, f, tensionCurve) {
       const spb = 60 / style.bpm;
       const beats = style.bars * 4;
-      const energyScale = style.drumEnergy * (0.6 + 0.8 * f.rms / 0.1);
 
       for (let b = 0; b < beats; b++) {
+        const barIdx = Math.floor(b / 4);
+        const T = tensionCurve[barIdx];
+        const energyScale =
+          style.drumEnergy * (0.6 + 0.8 * f.rms / 0.1) * (0.7 + 0.6 * T);
+
         const t = b * spb;
         const beatInBar = b % 4;
 
+        // Kick：张力高时 ghost note 更多
         if (beatInBar === 0 || beatInBar === 2 ||
-            (f.zcr > 2000 && Math.random() < 0.4)) {
-          scheduleKick(ctx, master, t, 50, 0.5 * energyScale);
+            (T > 0.6 && Math.random() < 0.5)) {
+          scheduleKick(ctx, master, t, 55 + T * 20, 0.5 * energyScale);
         }
 
+        // Snare：2/4 强拍不变，张力高时加提前/延后 ghost
         if (beatInBar === 1 || beatInBar === 3) {
           scheduleSnare(ctx, master, t, 0.35 * energyScale);
+          if (T > 0.7 && Math.random() < 0.4) {
+            scheduleSnare(ctx, master, t - spb * 0.12, 0.15 * energyScale);
+          }
         }
 
-        const hatDensity = f.zcr > 2000 ? 2 : 1;
+        // Hat：张力越高越密
+        const hatBase = f.zcr > 2000 ? 2 : 1;
+        const hatDensity = hatBase + (T > 0.6 ? 1 : 0);
         for (let i = 0; i < hatDensity; i++) {
-          const hatT = t + spb * (i / hatDensity + 0.5 / hatDensity);
-          scheduleHat(ctx, master, hatT, 0.15 * energyScale);
+          const hatT = t + spb * (i / hatDensity + 0.5 / (hatDensity + 1));
+          scheduleHat(ctx, master, hatT, 0.12 * energyScale);
         }
       }
     }
@@ -876,7 +910,7 @@
 
       const filter = ctx.createBiquadFilter();
       filter.type = 'highpass';
-      filter.frequency.value = 1800;
+      filter.frequency.value = 1900;
 
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(gainLevel, time);
@@ -899,7 +933,7 @@
 
       const filter = ctx.createBiquadFilter();
       filter.type = 'highpass';
-      filter.frequency.value = 6000;
+      filter.frequency.value = 6500;
 
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(gainLevel, time);
@@ -913,17 +947,23 @@
       noise.stop(time + 0.1);
     }
 
-    function scheduleBass(ctx, master, style, f) {
+    function scheduleBass(ctx, master, style, f, tensionCurve) {
       const spb = 60 / style.bpm;
       const beats = style.bars * 4;
       const scale = makeMinorScale(style.scaleRoot);
-      const strength = 0.18 + 0.4 * f.rms / 0.12;
+      const baseStrength = 0.18 + 0.4 * f.rms / 0.12;
 
       for (let b = 0; b < beats; b += 2) {
+        const barIdx = Math.floor(b / 4);
+        const T = tensionCurve[barIdx];
         const t = b * spb;
-        const idx = (b / 2) % scale.length;
+
+        const idxBase = (b / 2) % scale.length;
+        const leap = T > 0.6 && Math.random() < 0.5 ? (Math.random() < 0.5 ? -2 : 2) : 0;
+        const idx = (idxBase + leap + scale.length) % scale.length;
+
         const midi = scale[idx];
-        const freq = midiToFreq(midi - 12);
+        const freq = midiToFreq(midi - 12); // 降一八度
 
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -931,7 +971,9 @@
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(freq, t);
 
-        const dur = spb * 1.7;
+        const dur = spb * (1.4 + 0.5 * T);
+        const strength = baseStrength * (0.7 + 0.8 * T);
+
         gain.gain.setValueAtTime(strength, t);
         gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
@@ -943,27 +985,46 @@
       }
     }
 
-    function scheduleLead(ctx, master, style, f) {
+    function scheduleLead(ctx, master, style, f, tensionCurve) {
       const spb = 60 / style.bpm;
       const beats = style.bars * 4;
-      const scale = makeMinorScale(style.scaleRoot + 12);
-      const density = style.leadDensity * (0.4 + 0.6 * f.zcr / 3000);
+      const baseScale = makeMinorScale(style.scaleRoot + 12);
+      const densityBase = style.leadDensity * (0.3 + 0.7 * f.zcr / 3000);
+
+      // 额外的“擦音”半音阶，用于地狱爵士感
+      function pickPitchWithTension(scale, T) {
+        const baseMidi = scale[Math.floor(Math.random() * scale.length)];
+        if (Math.random() < T) {
+          const offset = (Math.random() < 0.5 ? -1 : 1); // 半音偏移
+          return baseMidi + offset;
+        }
+        return baseMidi;
+      }
 
       for (let b = 0; b < beats; b++) {
+        const barIdx = Math.floor(b / 4);
+        const T = tensionCurve[barIdx];
+        const density = densityBase * (0.3 + 0.9 * T);
+
         if (Math.random() > density) continue;
 
         const t = b * spb + spb * Math.random() * 0.5;
-        const midi = scale[Math.floor(Math.random() * scale.length)];
+        const midi = pickPitchWithTension(baseScale, T);
         const freq = midiToFreq(midi);
 
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
 
-        osc.type = 'square';
+        osc.type = (T > 0.6 ? 'sawtooth' : 'square');
         osc.frequency.setValueAtTime(freq, t);
+        if (T > 0.7) {
+          // 高张力时做一点滑音
+          osc.frequency.linearRampToValueAtTime(freq * (1 + (Math.random() - 0.5) * 0.2),
+                                                t + spb * 0.25);
+        }
 
-        const dur = spb * (0.2 + 0.4 * Math.random());
-        const level = 0.08 + 0.1 * (1 - f.reward);
+        const dur = spb * (0.18 + 0.4 * (0.5 + T));
+        const level = 0.07 + 0.12 * (1 - f.reward) * (0.5 + T);
 
         gain.gain.setValueAtTime(level, t);
         gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
@@ -981,6 +1042,68 @@
       }
     }
 
+    /********** 时间线粉碎：从原始噪音中取 grain 做 glitch **********/
+    function scheduleGlitchFromDriver(ctx, master, style, f, driverData, sampleRate, tensionCurve) {
+      if (!driverData || driverData.length === 0) return;
+
+      const spb = 60 / style.bpm;
+      const bars = style.bars;
+
+      // 粒度 40–80ms 之间
+      const minGrain = Math.floor(sampleRate * 0.04);
+      const maxGrain = Math.floor(sampleRate * 0.08);
+
+      // 预切一堆 grain
+      const grains = [];
+      let ptr = 0;
+      while (ptr + minGrain < driverData.length && grains.length < 256) {
+        const gLen = minGrain + Math.floor(Math.random() * (maxGrain - minGrain));
+        const g = new Float32Array(gLen);
+        g.set(driverData.subarray(ptr, ptr + gLen));
+        grains.push(g);
+        ptr += gLen;
+      }
+      if (grains.length === 0) return;
+
+      for (let bar = 0; bar < bars; bar++) {
+        const T = tensionCurve[bar];
+        const barStart = bar * 4 * spb;
+
+        // 张力越高，grains 越多
+        const events = Math.round(2 + 8 * T);
+        for (let i = 0; i < events; i++) {
+          const grain = grains[Math.floor(Math.random() * grains.length)];
+          const buf = ctx.createBuffer(1, grain.length, sampleRate);
+          buf.getChannelData(0).set(grain);
+
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+
+          // 时间线粉碎：随机时间 + 随机回放速度（0.6~1.8）
+          const localPos = Math.random() * 4 * spb;
+          const t = barStart + localPos;
+          src.playbackRate.value = 0.6 + 1.2 * Math.random();
+
+          // 滤波：高张力时更尖锐
+          const filter = ctx.createBiquadFilter();
+          filter.type = (T > 0.6 ? 'highpass' : 'bandpass');
+          filter.frequency.value = 1500 + 3500 * T;
+          filter.Q.value = 0.7 + 1.2 * T;
+
+          const g = ctx.createGain();
+          g.gain.value = 0.06 + 0.12 * T * (1 - f.reward);
+
+          src.connect(filter);
+          filter.connect(g);
+          g.connect(master);
+
+          src.start(t);
+          src.stop(t + grain.length / sampleRate / src.playbackRate.value + 0.02);
+        }
+      }
+    }
+
+    /********** 工具函数：音阶 / WAV / 归一化 / 调试 **********/
     function makeMinorScale(rootMidi) {
       const intervals = [0, 2, 3, 5, 7, 8, 10];
       return intervals.map(i => rootMidi + i);
@@ -990,7 +1113,6 @@
       return 440 * Math.pow(2, (midi - 69) / 12);
     }
 
-    /********** WAV & Normalize & Distortion **********/
     function normalizeFloat(samples) {
       let max = 0;
       for (let i = 0; i < samples.length; i++) {
@@ -1022,9 +1144,7 @@
       const view = new DataView(buffer);
 
       function writeString(offset, str) {
-        for (let i = 0; i < str.length; i++) {
-          view.setUint8(offset + i, str.charCodeAt(i));
-        }
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
       }
 
       const numChannels = 1;
