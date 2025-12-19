@@ -30,7 +30,7 @@
       font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     }
 
-    /* 顶部调试条：默认打开，方便排错与观察 */
+    /* 顶部调试条 */
     #debugConsole {
       position: fixed;
       top: 0; left: 0;
@@ -52,7 +52,7 @@
       display: flex;
       flex-direction: column;
       height: 100vh;
-      padding-top: 80px; /* 给调试条留空间 */
+      padding-top: 80px;
       box-sizing: border-box;
     }
 
@@ -527,7 +527,7 @@
       drawing = false;
     }
 
-    /********** 录音管线（已验证可用） **********/
+    /********** 录音管线 **********/
     async function startRecording() {
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -621,7 +621,7 @@
       }
     }
 
-    /********** 地狱作曲：噪音场 + 乐音场 + 时间线粉碎 **********/
+    /********** 地狱作曲：噪音场 + 乐音场 + 时间粉碎 **********/
     async function generateFromRecording(floatData, sampleRate) {
       try {
         const analysis = analyzeAndDescribe(floatData, sampleRate);
@@ -684,7 +684,6 @@
       const rms = Math.sqrt(sqSum / n);
       const zcr = zeroCross / n * sampleRate;
 
-      // Y*：理想助眠场；reward 越低，说明“地狱噪音成分”越重
       const yStar = { rms: 0.02, zcr: 500 };
       const er = Math.abs(rms - yStar.rms) / (yStar.rms + 1e-6);
       const ez = Math.abs(zcr - yStar.zcr) / (yStar.zcr + 1e-6);
@@ -712,13 +711,13 @@
 
       let mood;
       if (reward > 0.8) {
-        mood = '噪音接近静态场，我会用大跨度但稀疏的和弦，让它变成“阴间交响”的底色。';
+        mood = '噪音接近静态场，我会用暗黑和弦与缓慢的粒子，让它变成“阴间交响”的序章。';
       } else if (reward > 0.5) {
-        mood = '噪音在混乱与秩序之间，我会用适中密度的鼓和贝斯，让乐曲像一场危险的梦境。';
+        mood = '噪音在混乱与秩序之间，我会做多段结构，把它写成一首有故事的 ' + styleName + '。';
       } else if (reward > 0.2) {
-        mood = '噪音偏躁动，我会把节奏和 Lead 推向高张力区，形成攻击性很强的 ' + styleName + '。';
+        mood = '噪音偏躁动，我会在高潮段拉满鼓、贝斯和 Lead，把它推向高压地狱。';
       } else {
-        mood = '噪音极度粗糙，我会强行把时间线粉碎重组，让它变成一段实验性“地狱碎片乐章”。';
+        mood = '噪音极度粗糙，我会彻底打碎时间线，用大量 glitch 粒子写成一段实验性的“地狱碎片乐章”。';
       }
 
       const tech =
@@ -734,7 +733,7 @@
       };
     }
 
-    /********** 乐音场作曲 + 时间线粉碎 **********/
+    /********** 乐音场作曲 + 段落结构 + 时间粉碎 **********/
     function renderHellComposition(features, styleId, driverData, sampleRate) {
       return new Promise((resolve, reject) => {
         try {
@@ -750,10 +749,11 @@
           master.gain.value = style.masterGain;
           master.connect(offline.destination);
 
-          // 根据 Y* reward 构造每小节的张力曲线 T(b)
-          const tensionCurve = buildTensionCurve(bars, features.reward);
+          // 结构：intro / groove / break / climax / outro
+          const form = buildForm(bars, features.reward);
+          const tensionCurve = form.map(f => f.tension);
 
-          // 1. 噪音纹理：长背景层
+          // 长噪音纹理（背景场）
           if (driverData && driverData.length > 0) {
             const driverBuffer = offline.createBuffer(1, length, sampleRate);
             const dest = driverBuffer.getChannelData(0);
@@ -783,15 +783,13 @@
             src.start(0);
           }
 
-          // 2. 鼓 / 贝斯 / Lead （受每小节 T(b) 调制）
-          scheduleDrums(offline, master, style, features, tensionCurve);
-          scheduleBass(offline, master, style, features, tensionCurve);
-          scheduleLead(offline, master, style, features, tensionCurve);
-
-          // 3. 时间线粉碎的 glitch 层：从原始噪音中抓 grain 重排
-          scheduleGlitchFromDriver(
-            offline, master, style, features, driverData, sampleRate, tensionCurve
-          );
+          // 鼓 / Bass / Lead / Pad / Arp / Glitch
+          scheduleDrums(offline, master, style, features, form);
+          scheduleBass(offline, master, style, features, form);
+          scheduleLead(offline, master, style, features, form);
+          schedulePad(offline, master, style, features, form);
+          scheduleArp(offline, master, style, features, form);
+          scheduleGlitchFromDriver(offline, master, style, features, driverData, sampleRate, form);
 
           offline.startRendering().then(buffer => {
             const out = new Float32Array(buffer.length);
@@ -806,77 +804,108 @@
       });
     }
 
-    function buildTensionCurve(bars, reward) {
-      // 这里可以看成一个简单的泛函：我们希望张力曲线从低 → 高 → 释放
-      // reward 越低，整体越“地狱”，基线张力越高
-      const base = 0.3 + (1 - reward) * 0.5; // 0.3~0.8
-      const curve = [];
+    function buildForm(bars, reward) {
+      // 设计一个 intro-groove-break-climax-outro 的段落分布
+      const form = [];
       for (let b = 0; b < bars; b++) {
-        const phase = Math.sin(Math.PI * b / Math.max(1, bars - 1));
-        let t = base * (0.7 + 0.6 * phase); // 中间段张力更高
-        t += (Math.random() - 0.5) * 0.15;  // 小扰动
-        t = Math.max(0, Math.min(1, t));
-        curve.push(t);
+        const x = b / Math.max(1, bars - 1);
+        let section = 'groove';
+        if (x < 0.2) section = 'intro';
+        else if (x < 0.45) section = 'groove';
+        else if (x < 0.6) section = 'break';
+        else if (x < 0.85) section = 'climax';
+        else section = 'outro';
+
+        // 基线张力：reward 越低整体越高
+        let base = 0.3 + (1 - reward) * 0.4;
+        let bump = 0;
+        if (section === 'intro') bump = 0.1 * x;
+        if (section === 'groove') bump = 0.25 + 0.3 * Math.sin(Math.PI * (x - 0.2) / 0.5);
+        if (section === 'break') bump = 0.2;
+        if (section === 'climax') bump = 0.5;
+        if (section === 'outro') bump = 0.15 * (1 - x);
+
+        let tension = base + bump;
+        tension += (Math.random() - 0.5) * 0.15;
+        tension = Math.max(0, Math.min(1, tension));
+
+        form.push({ section, tension });
       }
-      return curve;
+      return form;
     }
 
     function getHellStyle(styleId, f) {
       const base = {
         masterGain: 0.9,
-        noiseLevel: 0.28 + 0.35 * (1 - f.reward),
+        noiseLevel: 0.25 + 0.35 * (1 - f.reward),
         noiseDist: 80 + 220 * (1 - f.reward),
         noiseFilterType: 'bandpass',
         noiseFreq: 1500,
         noiseQ: 1.4,
-        bars: f.duration > 6 ? 8 : 4
+        bars: f.duration > 8 ? 10 : (f.duration > 4 ? 8 : 6)
       };
       switch (styleId) {
         case 'hell_metal':
-          return { ...base, bpm: 150 + 40 * f.reward, scaleRoot: 42, dist: 250, drumEnergy: 1.3, leadDensity: 0.9 };
+          return { ...base, bpm: 145 + 30 * f.reward, scaleRoot: 42, dist: 260, drumEnergy: 1.3, leadDensity: 0.95 };
         case 'hell_rock':
-          return { ...base, bpm: 130 + 20 * f.reward, scaleRoot: 45, dist: 180, drumEnergy: 1.0, leadDensity: 0.75 };
+          return { ...base, bpm: 130 + 15 * f.reward, scaleRoot: 45, dist: 190, drumEnergy: 1.0, leadDensity: 0.8 };
         case 'hell_jazz':
-          return { ...base, bpm: 115 + 15 * f.reward, scaleRoot: 48, dist: 110, drumEnergy: 0.75, leadDensity: 0.7 };
+          return { ...base, bpm: 110 + 20 * f.reward, scaleRoot: 48, dist: 120, drumEnergy: 0.75, leadDensity: 0.75 };
         case 'hell_rap':
-          return { ...base, bpm: 90  + 15 * (1 - f.reward), scaleRoot: 40, dist: 140, drumEnergy: 0.9, leadDensity: 0.55 };
+          return { ...base, bpm: 88  + 12 * (1 - f.reward), scaleRoot: 40, dist: 150, drumEnergy: 0.9, leadDensity: 0.6 };
         case 'hell_ambient':
         default:
-          return { ...base, bpm: 70  + 25 * f.reward, scaleRoot: 52, dist: 80,  drumEnergy: 0.45, leadDensity: 0.4 };
+          return { ...base, bpm: 72  + 22 * f.reward, scaleRoot: 52, dist: 90,  drumEnergy: 0.5, leadDensity: 0.45 };
       }
     }
 
-    /********** 鼓 / Bass / Lead：受张力曲线调制 **********/
-    function scheduleDrums(ctx, master, style, f, tensionCurve) {
+    /********** 鼓 / Bass / Lead / Pad / Arp **********/
+    function scheduleDrums(ctx, master, style, f, form) {
       const spb = 60 / style.bpm;
       const beats = style.bars * 4;
 
       for (let b = 0; b < beats; b++) {
         const barIdx = Math.floor(b / 4);
-        const T = tensionCurve[barIdx];
-        const energyScale =
-          style.drumEnergy * (0.6 + 0.8 * f.rms / 0.1) * (0.7 + 0.6 * T);
-
+        const { section, tension: T } = form[barIdx];
         const t = b * spb;
         const beatInBar = b % 4;
 
-        // Kick：张力高时 ghost note 更多
-        if (beatInBar === 0 || beatInBar === 2 ||
-            (T > 0.6 && Math.random() < 0.5)) {
-          scheduleKick(ctx, master, t, 55 + T * 20, 0.5 * energyScale);
+        // intro/outro 鼓弱一些
+        const sectionScale =
+          section === 'intro' ? 0.4 :
+          section === 'outro' ? 0.6 :
+          section === 'break' ? 0.5 :
+          1.0;
+
+        const energyScale =
+          style.drumEnergy * sectionScale * (0.6 + 0.8 * f.rms / 0.1) * (0.7 + 0.6 * T);
+
+        // kick
+        if (section !== 'break') {
+          if (beatInBar === 0 || beatInBar === 2 ||
+              (T > 0.6 && Math.random() < 0.6)) {
+            scheduleKick(ctx, master, t, 55 + T * 25, 0.5 * energyScale);
+          }
+        } else if (Math.random() < 0.4) {
+          scheduleKick(ctx, master, t, 45 + T * 15, 0.3 * energyScale);
         }
 
-        // Snare：2/4 强拍不变，张力高时加提前/延后 ghost
+        // snare
         if (beatInBar === 1 || beatInBar === 3) {
-          scheduleSnare(ctx, master, t, 0.35 * energyScale);
-          if (T > 0.7 && Math.random() < 0.4) {
-            scheduleSnare(ctx, master, t - spb * 0.12, 0.15 * energyScale);
+          if (section !== 'intro') {
+            scheduleSnare(ctx, master, t, 0.35 * energyScale);
+            if (T > 0.7 && Math.random() < 0.5) {
+              scheduleSnare(ctx, master, t - spb * 0.12, 0.13 * energyScale);
+            }
           }
         }
 
-        // Hat：张力越高越密
+        // hi-hat / ride
         const hatBase = f.zcr > 2000 ? 2 : 1;
-        const hatDensity = hatBase + (T > 0.6 ? 1 : 0);
+        const hatDensity =
+          section === 'intro' ? 1 :
+          section === 'break' ? 1 + (T > 0.6 ? 1 : 0) :
+          hatBase + (T > 0.6 ? 1 : 0);
         for (let i = 0; i < hatDensity; i++) {
           const hatT = t + spb * (i / hatDensity + 0.5 / (hatDensity + 1));
           scheduleHat(ctx, master, hatT, 0.12 * energyScale);
@@ -887,18 +916,13 @@
     function scheduleKick(ctx, master, time, baseFreq, gainLevel) {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-
       osc.type = 'sine';
       osc.frequency.setValueAtTime(baseFreq, time);
       osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.25, time + 0.12);
-
       gain.gain.setValueAtTime(gainLevel, time);
       gain.gain.exponentialRampToValueAtTime(0.001, time + 0.25);
-
-      osc.connect(gain);
-      gain.connect(master);
-      osc.start(time);
-      osc.stop(time + 0.3);
+      osc.connect(gain); gain.connect(master);
+      osc.start(time); osc.stop(time + 0.3);
     }
 
     function scheduleSnare(ctx, master, time, gainLevel) {
@@ -907,21 +931,14 @@
       for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1);
       const noise = ctx.createBufferSource();
       noise.buffer = noiseBuffer;
-
       const filter = ctx.createBiquadFilter();
       filter.type = 'highpass';
       filter.frequency.value = 1900;
-
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(gainLevel, time);
       gain.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
-
-      noise.connect(filter);
-      filter.connect(gain);
-      gain.connect(master);
-
-      noise.start(time);
-      noise.stop(time + 0.2);
+      noise.connect(filter); filter.connect(gain); gain.connect(master);
+      noise.start(time); noise.stop(time + 0.2);
     }
 
     function scheduleHat(ctx, master, time, gainLevel) {
@@ -930,24 +947,17 @@
       for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1);
       const noise = ctx.createBufferSource();
       noise.buffer = noiseBuffer;
-
       const filter = ctx.createBiquadFilter();
       filter.type = 'highpass';
       filter.frequency.value = 6500;
-
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(gainLevel, time);
       gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
-
-      noise.connect(filter);
-      filter.connect(gain);
-      gain.connect(master);
-
-      noise.start(time);
-      noise.stop(time + 0.1);
+      noise.connect(filter); filter.connect(gain); gain.connect(master);
+      noise.start(time); noise.stop(time + 0.1);
     }
 
-    function scheduleBass(ctx, master, style, f, tensionCurve) {
+    function scheduleBass(ctx, master, style, f, form) {
       const spb = 60 / style.bpm;
       const beats = style.bars * 4;
       const scale = makeMinorScale(style.scaleRoot);
@@ -955,47 +965,47 @@
 
       for (let b = 0; b < beats; b += 2) {
         const barIdx = Math.floor(b / 4);
-        const T = tensionCurve[barIdx];
+        const { section, tension: T } = form[barIdx];
         const t = b * spb;
 
-        const idxBase = (b / 2) % scale.length;
-        const leap = T > 0.6 && Math.random() < 0.5 ? (Math.random() < 0.5 ? -2 : 2) : 0;
-        const idx = (idxBase + leap + scale.length) % scale.length;
+        if (section === 'intro' && Math.random() < 0.5) continue;
 
+        const chordPattern = [0, 5, 3, 4]; // i–VI–IV–v-ish
+        const chordIdx = chordPattern[barIdx % chordPattern.length];
+        const idxBase = chordIdx % scale.length;
+        const leap = T > 0.65 && Math.random() < 0.6 ? (Math.random() < 0.5 ? -2 : 2) : 0;
+        const idx = (idxBase + leap + scale.length) % scale.length;
         const midi = scale[idx];
-        const freq = midiToFreq(midi - 12); // 降一八度
+        const freq = midiToFreq(midi - 12);
 
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(freq, t);
 
-        const dur = spb * (1.4 + 0.5 * T);
-        const strength = baseStrength * (0.7 + 0.8 * T);
+        const dur =
+          section === 'break' ? spb * (0.8 + 0.4 * T) :
+          spb * (1.4 + 0.6 * T);
+        const strength = baseStrength * (0.7 + 0.9 * T);
 
         gain.gain.setValueAtTime(strength, t);
         gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
 
-        osc.connect(gain);
-        gain.connect(master);
-
-        osc.start(t);
-        osc.stop(t + dur + 0.05);
+        osc.connect(gain); gain.connect(master);
+        osc.start(t); osc.stop(t + dur + 0.05);
       }
     }
 
-    function scheduleLead(ctx, master, style, f, tensionCurve) {
+    function scheduleLead(ctx, master, style, f, form) {
       const spb = 60 / style.bpm;
       const beats = style.bars * 4;
       const baseScale = makeMinorScale(style.scaleRoot + 12);
       const densityBase = style.leadDensity * (0.3 + 0.7 * f.zcr / 3000);
 
-      // 额外的“擦音”半音阶，用于地狱爵士感
-      function pickPitchWithTension(scale, T) {
+      function pickPitch(scale, T, section) {
         const baseMidi = scale[Math.floor(Math.random() * scale.length)];
-        if (Math.random() < T) {
-          const offset = (Math.random() < 0.5 ? -1 : 1); // 半音偏移
+        if (section === 'climax' || (section === 'groove' && T > 0.6)) {
+          const offset = (Math.random() < 0.5 ? -1 : 1);
           return baseMidi + offset;
         }
         return baseMidi;
@@ -1003,27 +1013,34 @@
 
       for (let b = 0; b < beats; b++) {
         const barIdx = Math.floor(b / 4);
-        const T = tensionCurve[barIdx];
-        const density = densityBase * (0.3 + 0.9 * T);
+        const { section, tension: T } = form[barIdx];
+        let density =
+          section === 'intro' ? densityBase * 0.3 :
+          section === 'break' ? densityBase * 0.6 :
+          section === 'outro' ? densityBase * 0.4 :
+          densityBase * (0.5 + 0.8 * T);
 
         if (Math.random() > density) continue;
 
         const t = b * spb + spb * Math.random() * 0.5;
-        const midi = pickPitchWithTension(baseScale, T);
+        const midi = pickPitch(baseScale, T, section);
         const freq = midiToFreq(midi);
 
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
 
-        osc.type = (T > 0.6 ? 'sawtooth' : 'square');
+        osc.type = (T > 0.65 ? 'sawtooth' : 'square');
         osc.frequency.setValueAtTime(freq, t);
         if (T > 0.7) {
-          // 高张力时做一点滑音
-          osc.frequency.linearRampToValueAtTime(freq * (1 + (Math.random() - 0.5) * 0.2),
-                                                t + spb * 0.25);
+          osc.frequency.linearRampToValueAtTime(
+            freq * (1 + (Math.random() - 0.5) * 0.22),
+            t + spb * 0.25
+          );
         }
 
-        const dur = spb * (0.18 + 0.4 * (0.5 + T));
+        const dur =
+          section === 'break' ? spb * (0.15 + 0.25 * T) :
+          spb * (0.18 + 0.4 * (0.5 + T));
         const level = 0.07 + 0.12 * (1 - f.reward) * (0.5 + T);
 
         gain.gain.setValueAtTime(level, t);
@@ -1033,30 +1050,126 @@
         shaper.curve = makeDistortionCurve(style.dist);
         shaper.oversample = '4x';
 
-        osc.connect(shaper);
-        shaper.connect(gain);
-        gain.connect(master);
-
-        osc.start(t);
-        osc.stop(t + dur + 0.05);
+        osc.connect(shaper); shaper.connect(gain); gain.connect(master);
+        osc.start(t); osc.stop(t + dur + 0.05);
       }
     }
 
-    /********** 时间线粉碎：从原始噪音中取 grain 做 glitch **********/
-    function scheduleGlitchFromDriver(ctx, master, style, f, driverData, sampleRate, tensionCurve) {
+    // 脑补的和弦 Pad（长音铺底）
+    function schedulePad(ctx, master, style, f, form) {
+      const spb = 60 / style.bpm;
+      const bars = style.bars;
+      const scale = makeMinorScale(style.scaleRoot + 5); // 稍微高一点
+      const baseLevel = 0.08 + 0.12 * f.reward;
+
+      const chordPattern = [0, 5, 3, 4]; // 度数模式
+
+      for (let bar = 0; bar < bars; bar++) {
+        const { section, tension: T } = form[bar];
+        if (section === 'break' && Math.random() < 0.5) continue;
+
+        const barStart = bar * 4 * spb;
+        const chordDegree = chordPattern[bar % chordPattern.length];
+        const rootIdx = chordDegree % scale.length;
+
+        // 简单小三和弦 + 加四度/七度
+        const chord = [
+          scale[rootIdx],
+          scale[(rootIdx + 2) % scale.length],
+          scale[(rootIdx + 4) % scale.length]
+        ];
+        if (T > 0.6) chord.push(scale[(rootIdx + 6) % scale.length]); // 七度擦音
+
+        const level =
+          baseLevel *
+          (section === 'intro' || section === 'outro' ? 0.8 : 1.0) *
+          (0.5 + 0.8 * (1 - f.reward)) *
+          (0.7 + 0.6 * T);
+
+        chord.forEach((midi, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(midiToFreq(midi), barStart);
+
+          const sustain =
+            section === 'break'
+              ? spb * (1.0 + 0.4 * (1 - T))
+              : 4 * spb * (0.9 + 0.4 * T);
+
+          const start = barStart + (i * 0.03);
+          gain.gain.setValueAtTime(level, start);
+          gain.gain.linearRampToValueAtTime(level * 0.7, start + sustain * 0.5);
+          gain.gain.exponentialRampToValueAtTime(0.001, start + sustain);
+
+          osc.connect(gain); gain.connect(master);
+          osc.start(start); osc.stop(start + sustain + 0.1);
+        });
+      }
+    }
+
+    // 脑补的 Arp：跟随和弦跑的高音跳跃线
+    function scheduleArp(ctx, master, style, f, form) {
+      const spb = 60 / style.bpm;
+      const bars = style.bars;
+      const scale = makeMinorScale(style.scaleRoot + 12);
+      const baseDensity = 0.4 + 0.6 * (1 - f.reward);
+
+      for (let bar = 0; bar < bars; bar++) {
+        const { section, tension: T } = form[bar];
+        const barStart = bar * 4 * spb;
+        let density =
+          section === 'intro' ? baseDensity * 0.3 :
+          section === 'break' ? baseDensity * 0.5 :
+          section === 'outro' ? baseDensity * 0.4 :
+          baseDensity * (0.6 + 0.7 * T);
+
+        const stepsPerBar = Math.round(8 + 16 * T); // T 越高，越密
+
+        for (let i = 0; i < stepsPerBar; i++) {
+          if (Math.random() > density) continue;
+
+          const pos = (i / stepsPerBar) * 4 * spb;
+          const t = barStart + pos;
+
+          const step = Math.floor(Math.random() * scale.length);
+          let midi = scale[step];
+          if (T > 0.7 && Math.random() < 0.5) {
+            midi += (Math.random() < 0.5 ? 12 : -12); // 大跳一八度
+          }
+
+          const freq = midiToFreq(midi);
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(freq, t);
+
+          const dur = spb * (0.07 + 0.18 * (0.3 + T));
+          const level = 0.04 + 0.08 * (1 - f.reward) * (0.4 + T);
+
+          gain.gain.setValueAtTime(level, t);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+
+          osc.connect(gain); gain.connect(master);
+          osc.start(t); osc.stop(t + dur + 0.05);
+        }
+      }
+    }
+
+    /********** 时间线粉碎：glitch 粒子 **********/
+    function scheduleGlitchFromDriver(ctx, master, style, f, driverData, sampleRate, form) {
       if (!driverData || driverData.length === 0) return;
 
       const spb = 60 / style.bpm;
       const bars = style.bars;
 
-      // 粒度 40–80ms 之间
-      const minGrain = Math.floor(sampleRate * 0.04);
-      const maxGrain = Math.floor(sampleRate * 0.08);
+      const minGrain = Math.floor(sampleRate * 0.03);
+      const maxGrain = Math.floor(sampleRate * 0.09);
 
-      // 预切一堆 grain
       const grains = [];
       let ptr = 0;
-      while (ptr + minGrain < driverData.length && grains.length < 256) {
+      while (ptr + minGrain < driverData.length && grains.length < 300) {
         const gLen = minGrain + Math.floor(Math.random() * (maxGrain - minGrain));
         const g = new Float32Array(gLen);
         g.set(driverData.subarray(ptr, ptr + gLen));
@@ -1066,36 +1179,36 @@
       if (grains.length === 0) return;
 
       for (let bar = 0; bar < bars; bar++) {
-        const T = tensionCurve[bar];
+        const { section, tension: T } = form[bar];
         const barStart = bar * 4 * spb;
 
-        // 张力越高，grains 越多
-        const events = Math.round(2 + 8 * T);
+        const baseEvents =
+          section === 'intro' ? 2 :
+          section === 'break' ? 4 :
+          section === 'outro' ? 3 :
+          5;
+        const events = Math.round(baseEvents + 10 * T * (1 + (section === 'climax' ? 0.7 : 0)));
+
         for (let i = 0; i < events; i++) {
           const grain = grains[Math.floor(Math.random() * grains.length)];
           const buf = ctx.createBuffer(1, grain.length, sampleRate);
           buf.getChannelData(0).set(grain);
-
           const src = ctx.createBufferSource();
           src.buffer = buf;
 
-          // 时间线粉碎：随机时间 + 随机回放速度（0.6~1.8）
           const localPos = Math.random() * 4 * spb;
           const t = barStart + localPos;
-          src.playbackRate.value = 0.6 + 1.2 * Math.random();
+          src.playbackRate.value = 0.6 + 1.4 * Math.random();
 
-          // 滤波：高张力时更尖锐
           const filter = ctx.createBiquadFilter();
           filter.type = (T > 0.6 ? 'highpass' : 'bandpass');
-          filter.frequency.value = 1500 + 3500 * T;
-          filter.Q.value = 0.7 + 1.2 * T;
+          filter.frequency.value = 1200 + 4500 * T;
+          filter.Q.value = 0.7 + 1.5 * T;
 
           const g = ctx.createGain();
-          g.gain.value = 0.06 + 0.12 * T * (1 - f.reward);
+          g.gain.value = 0.04 + 0.11 * T * (1 - f.reward);
 
-          src.connect(filter);
-          filter.connect(g);
-          g.connect(master);
+          src.connect(filter); filter.connect(g); g.connect(master);
 
           src.start(t);
           src.stop(t + grain.length / sampleRate / src.playbackRate.value + 0.02);
@@ -1103,7 +1216,7 @@
       }
     }
 
-    /********** 工具函数：音阶 / WAV / 归一化 / 调试 **********/
+    /********** 工具：音阶 / WAV / Normalize / 调试 **********/
     function makeMinorScale(rootMidi) {
       const intervals = [0, 2, 3, 5, 7, 8, 10];
       return intervals.map(i => rootMidi + i);
@@ -1178,7 +1291,6 @@
       return new Blob([view], { type: 'audio/wav' });
     }
 
-    /********** 计时 / 保存 / 分享 / 调试 **********/
     function startTimer() {
       recordingStartTime = performance.now();
       clearInterval(timerInterval);
