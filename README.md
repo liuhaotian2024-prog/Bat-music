@@ -30,7 +30,6 @@
       font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     }
 
-    /* 调试条，调试时改成 display:block */
     #debugConsole {
       position: fixed;
       top: 0; left: 0;
@@ -42,7 +41,7 @@
       font-size: 10px;
       font-family: monospace;
       z-index: 999;
-      display: none;
+      display: none; /* 调试时改为 block */
       padding: 2px 6px;
       overflow-y: auto;
       white-space: pre-wrap;
@@ -54,7 +53,6 @@
       height: 100vh;
     }
 
-    /* 顶部：示波器 */
     .stage {
       position: relative;
       flex: 1 1 auto;
@@ -114,6 +112,7 @@
       box-shadow: 0 0 10px rgba(0,122,255,0.5);
     }
 
-    /* 中部：本次乐曲气质说明 */
     .summary {
-      pad
+      padding: 10px 14px 6px;
+      background: var(--bg-panel);
+      b
