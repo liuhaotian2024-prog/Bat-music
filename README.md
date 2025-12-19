@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <title>Bat-music · 波形因果音乐实验台</title>
+  <title>Bat-music · 从呼噜到乐曲</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <style>
@@ -10,7 +10,6 @@
       --bg-main: #050608;
       --bg-stage: #111218;
       --bg-panel: #050509;
-      --bg-panel-soft: #11141c;
       --border-soft: #222534;
       --accent-primary: #007aff;
       --accent-record: #ff3b30;
@@ -18,15 +17,11 @@
       --text-main: #f5f5f5;
       --text-muted: #8c8f98;
       --radius-lg: 10px;
-      --radius-sm: 6px;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
-    html,
-    body {
+    html, body {
       margin: 0;
       padding: 0;
       height: 100%;
@@ -35,11 +30,10 @@
       font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     }
 
-    /* 调试控制台 */
+    /* 调试条，可随时关掉 display:none */
     #debugConsole {
       position: fixed;
-      top: 0;
-      left: 0;
+      top: 0; left: 0;
       width: 100%;
       min-height: 18px;
       max-height: 60px;
@@ -54,7 +48,7 @@
       white-space: pre-wrap;
     }
 
-    .bat-app {
+    .app {
       display: flex;
       flex-direction: column;
       height: 100vh;
@@ -64,7 +58,7 @@
     .stage {
       position: relative;
       flex: 1 1 auto;
-      min-height: 180px;
+      min-height: 200px;
       background: radial-gradient(circle at top, #1a1c24 0, var(--bg-stage) 55%);
       border-bottom: 1px solid var(--border-soft);
       overflow: hidden;
@@ -78,15 +72,14 @@
 
     .center-status {
       position: absolute;
-      top: 50%;
-      left: 50%;
+      top: 50%; left: 50%;
       transform: translate(-50%, -50%);
       text-align: center;
       pointer-events: none;
     }
 
     .timer {
-      font-size: 36px;
+      font-size: 38px;
       font-weight: 600;
       font-family: monospace;
       letter-spacing: 0.06em;
@@ -98,10 +91,10 @@
       margin-top: 8px;
     }
 
-    .status-badges {
+    .status-badge-row {
       position: absolute;
-      left: 16px;
-      top: 14px;
+      left: 12px;
+      top: 12px;
       display: flex;
       gap: 6px;
       font-size: 10px;
@@ -110,84 +103,40 @@
     .status-badge {
       padding: 2px 6px;
       border-radius: 999px;
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      color: var(--text-muted);
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #999;
     }
 
     .status-badge--active {
       color: #fff;
       border-color: var(--accent-primary);
-      box-shadow: 0 0 10px rgba(0, 122, 255, 0.4);
+      box-shadow: 0 0 10px rgba(0,122,255,0.5);
     }
 
-    .bwl-layers {
-      position: absolute;
-      left: 16px;
-      bottom: 12px;
-      display: flex;
-      gap: 4px;
-      font-size: 9px;
-    }
-
-    .bwl-layer-tag {
-      padding: 2px 6px;
-      border-radius: 999px;
-      background: rgba(8, 8, 12, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      color: var(--text-muted);
-    }
-
-    .bwl-layer-tag--focus {
-      border-color: var(--accent-ok);
-      color: #e0ffe5;
-    }
-
-    /* CIEU 面板 */
-    .cieu-panel {
-      padding: 8px 12px;
+    /* 中部：本次乐曲气质说明 */
+    .summary {
+      padding: 10px 14px 6px;
       background: var(--bg-panel);
       border-bottom: 1px solid var(--border-soft);
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 6px;
-      font-size: 11px;
-    }
-
-    .cieu-item {
-      background: var(--bg-panel-soft);
-      border-radius: var(--radius-sm);
-      padding: 4px 6px;
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      min-height: 32px;
-    }
-
-    .cieu-item__label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
+      font-size: 13px;
       color: var(--text-muted);
-      margin-bottom: 2px;
     }
 
-    .cieu-item__value {
-      font-size: 11px;
-      color: #f0f0f0;
-      line-height: 1.3;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .summary-title {
+      font-size: 12px;
+      color: #aaa;
+      margin-bottom: 4px;
     }
 
-    .cieu-item--target {
-      border-color: var(--accent-primary);
+    .summary-text {
+      font-size: 13px;
+      color: #f5f5f5;
+      line-height: 1.4;
+      min-height: 2.6em;
     }
 
-    .cieu-item--reward {
-      border-color: var(--accent-ok);
-    }
-
-    /* 控制区 */
+    /* 底部：播放器 + 按钮 */
     .controls {
       flex: 0 0 auto;
       background: var(--bg-panel);
@@ -197,48 +146,18 @@
       gap: 10px;
     }
 
-    .target-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      align-items: center;
-    }
-
-    .target-label {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-right: 2px;
-    }
-
-    .target-chip {
-      padding: 4px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(12, 14, 20, 0.85);
-      font-size: 11px;
-      cursor: pointer;
-      user-select: none;
-    }
-
-    .target-chip--active {
-      border-color: var(--accent-primary);
-      background: rgba(0, 122, 255, 0.25);
-      color: #e5f1ff;
-    }
-
     #playerLayer {
       max-height: 0;
       opacity: 0;
       overflow: hidden;
-      transition: max-height 0.25s ease, opacity 0.25s ease;
+      transition: max-height .25s ease, opacity .25s ease;
       background: #181a20;
       border-radius: var(--radius-lg);
       border: 1px solid transparent;
-      margin-top: 4px;
     }
 
     #playerLayer.show {
-      max-height: 80px;
+      max-height: 90px;
       opacity: 1;
       border-color: var(--border-soft);
     }
@@ -252,7 +171,8 @@
 
     .btn-row {
       display: flex;
-      gap: 10px;
+      gap: 8px;
+      margin-top: 4px;
     }
 
     button {
@@ -262,12 +182,12 @@
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
-      transition: transform 0.08s ease, opacity 0.12s ease, box-shadow 0.12s ease;
       padding: 10px 4px;
+      transition: transform .08s ease, opacity .12s ease, box-shadow .12s ease;
     }
 
     button:active {
-      opacity: 0.8;
+      opacity: 0.85;
       transform: translateY(1px);
     }
 
@@ -299,14 +219,14 @@
     }
 
     .btn-rec.recording {
-      box-shadow: 0 0 16px rgba(255, 59, 48, 0.7);
+      box-shadow: 0 0 16px rgba(255,59,48,0.7);
     }
 
-    /* 微信遮罩 */
+    /* 提示遮罩（微信 / 权限问题） */
     #wxMask {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.9);
+      background: rgba(0,0,0,0.9);
       z-index: 1000;
       display: none;
       justify-content: center;
@@ -316,9 +236,7 @@
       color: #fff;
     }
 
-    #wxMask.show {
-      display: flex;
-    }
+    #wxMask.show { display: flex; }
 
     .wxMask-content {
       max-width: 320px;
@@ -328,90 +246,48 @@
     }
 
     @media (max-height: 640px) {
-      .timer {
-        font-size: 28px;
-      }
-      .controls {
-        padding-top: 6px;
-        padding-bottom: 8px;
-      }
+      .timer { font-size: 30px; }
+      .controls { padding-bottom: 10px; }
     }
   </style>
 </head>
 <body>
-  <!-- 调试控制台 -->
   <div id="debugConsole"></div>
 
-  <div class="bat-app">
-    <!-- 1. 示波器 + BWL 层 -->
+  <div class="app">
+    <!-- 示波器 -->
     <div class="stage">
       <canvas id="waveCanvas" class="wave-canvas"></canvas>
 
       <div class="center-status">
         <div id="timer" class="timer">00:00</div>
-        <div id="statusText" class="status-text">等待录制呼噜声 / 口哨 / 敲桌子等怪声音…</div>
+        <div id="statusText" class="status-text">
+          等待录制呼噜声 / 口哨 / 敲桌子等怪声音…
+        </div>
       </div>
 
-      <div class="status-badges">
+      <div class="status-badge-row">
         <div class="status-badge" data-phase="idle">空闲</div>
         <div class="status-badge" data-phase="recording">录制中</div>
-        <div class="status-badge" data-phase="cieu">CIEU 编码</div>
-        <div class="status-badge" data-phase="generating">生成乐曲</div>
+        <div class="status-badge" data-phase="generated">已生成乐曲</div>
         <div class="status-badge" data-phase="playing">播放中</div>
       </div>
+    </div>
 
-      <div class="bwl-layers">
-        <div class="bwl-layer-tag" data-layer="L0">L0 物理</div>
-        <div class="bwl-layer-tag" data-layer="L1">L1 词元</div>
-        <div class="bwl-layer-tag" data-layer="L2">L2 句法</div>
-        <div class="bwl-layer-tag" data-layer="L3">L3 语义</div>
-        <div class="bwl-layer-tag" data-layer="L4">L4 语用</div>
+    <!-- 本次乐曲气质说明（内部其实用 CIEU / Y* 算出来） -->
+    <div class="summary">
+      <div class="summary-title">本次乐曲的“气质”：</div>
+      <div id="summaryText" class="summary-text">
+        还没有乐曲。录一段呼噜 / 怪声，我会把它“炼”成一段独一无二的音乐。
       </div>
     </div>
 
-    <!-- 2. CIEU 面板 -->
-    <div class="cieu-panel">
-      <div class="cieu-item" data-cieu="x">
-        <div class="cieu-item__label">xₜ · 状态</div>
-        <div class="cieu-item__value" id="cieu-x">—</div>
-      </div>
-      <div class="cieu-item" data-cieu="u">
-        <div class="cieu-item__label">uₜ · 干预</div>
-        <div classc="cieu-item__value" id="cieu-u">等待操作</div>
-      </div>
-      <div class="cieu-item cieu-item--target" data-cieu="yStar">
-        <div class="cieu-item__label">y*ₜ · 目标</div>
-        <div class="cieu-item__value" id="cieu-y-star">未选择</div>
-      </div>
-      <div class="cieu-item" data-cieu="yOutcome">
-        <div class="cieu-item__label">yₜ+Δ · 结果</div>
-        <div class="cieu-item__value" id="cieu-y-outcome">—</div>
-      </div>
-      <div class="cieu-item cieu-item--reward" data-cieu="r">
-        <div class="cieu-item__label">rₜ+Δ · 奖励</div>
-        <div class="cieu-item__value" id="cieu-r">—</div>
-      </div>
-    </div>
-
-    <!-- 3. 控制区 -->
+    <!-- 播放器 + 按钮 -->
     <div class="controls">
-      <!-- Y* 目标选择 -->
-      <div class="target-row">
-        <span class="target-label">音乐风格 (y*):</span>
-        <div class="target-chip" data-style="symphony">交响</div>
-        <div class="target-chip" data-style="jazz">爵士</div>
-        <div class="target-chip" data-style="rap">说唱</div>
-        <div class="target-chip" data-style="ambient">氛围</div>
-        <div class="target-chip" data-style="lofi">LoFi</div>
-        <div class="target-chip" data-style="sleep">助眠白噪</div>
-      </div>
-
-      <!-- 播放器 -->
       <div id="playerLayer">
         <audio id="audioPlayer" controls></audio>
       </div>
 
-      <!-- 四个按钮：开始录音 / 停止并生成乐曲 / 保存 / 分享 -->
       <div class="btn-row">
         <button id="btnRecord" class="btn-rec">开始录音</button>
         <button id="btnStopGen" class="btn-stop-gen" disabled>停止并生成乐曲</button>
@@ -421,73 +297,56 @@
     </div>
   </div>
 
-  <!-- 微信遮罩（在不支持录音的环境使用） -->
+  <!-- 微信 / 不支持环境提示 -->
   <div id="wxMask">
     <div class="wxMask-content">
-      <p>当前环境可能限制音频录制或播放。</p>
-      <p>请在系统浏览器中打开本页面，或检查麦克风权限设置。</p>
+      <p>抱歉，当前浏览器可能不支持实时录音。</p>
+      <p>建议在手机系统浏览器（Safari / Chrome）中打开本页面，并确认授权麦克风权限。</p>
     </div>
   </div>
 
   <script>
+    /***** 全局状态 *****/
     const batState = {
-      phase: 'idle', // idle | recording | cieu | generating | playing
-      targetStyle: null,
-      recordedBlob: null,
-      generatedBlob: null,
-      audioBuffer: null,
-      cieu: {
-        x: null,
-        u: null,
-        yStar: null,
-        yOutcome: null,
-        reward: null
-      }
+      phase: 'idle',           // idle | recording | generated | playing
+      recordedBlob: null,      // 原始录音 WAV Blob
+      generatedBlob: null,     // 当前乐曲 Blob（目前 = 原录音，占位）
+      floatData: null,         // 录音的 PCM float32
+      sampleRate: 44100,
     };
 
-    let mediaRecorder = null;
-    let recordedChunks = [];
+    // Web Audio 相关
     let audioContext = null;
+    let micStream = null;
+    let sourceNode = null;
     let analyser = null;
-    let micSource = null;
+    let processor = null;
+    let muteGain = null;
+
+    // 录音缓存
+    let recordedBuffers = [];
+    let recordingLength = 0;
+
+    // 波形绘制
+    let elCanvas, canvasCtx;
     let drawing = false;
-    let recordingStartTime = null;
+
+    // DOM
+    let elTimer, elStatusText, elStatusBadges;
+    let btnRecord, btnStopGen, btnSave, btnShare;
+    let elPlayerLayer, elAudioPlayer, elSummary, debugConsole;
+
     let timerInterval = null;
+    let recordingStartTime = null;
 
-    let elTimer,
-      elStatusText,
-      elWaveCanvas,
-      waveCtx,
-      elStatusBadges,
-      elBwlTags,
-      elCieuX,
-      elCieuU,
-      elCieuYStar,
-      elCieuYOutcome,
-      elCieuR,
-      btnRecord,
-      btnStopGen,
-      btnSave,
-      btnShare,
-      elPlayerLayer,
-      elAudioPlayer,
-      targetChips,
-      debugConsole;
-
+    /***** 初始化 *****/
     window.addEventListener('DOMContentLoaded', () => {
+      elCanvas = document.getElementById('waveCanvas');
+      canvasCtx = elCanvas.getContext('2d');
+
       elTimer = document.getElementById('timer');
       elStatusText = document.getElementById('statusText');
-      elWaveCanvas = document.getElementById('waveCanvas');
-      waveCtx = elWaveCanvas.getContext('2d');
-
       elStatusBadges = document.querySelectorAll('.status-badge');
-      elBwlTags = document.querySelectorAll('.bwl-layer-tag');
-
-      elCieuX = document.getElementById('cieu-x');
-      elCieuU = document.getElementById('cieu-u');
-      elCieuYStar = document.getElementById('cieu-y-star');
-      elCieuYOutcome = document.getElementById('cieu-y-outcome');
-      elCieuR = document.getElementById('cieu-r');
 
       btnRecord = document.getElementById('btnRecord');
       btnStopGen = document.getElementById('btnStopGen');
@@ -496,15 +355,13 @@
 
       elPlayerLayer = document.getElementById('playerLayer');
       elAudioPlayer = document.getElementById('audioPlayer');
-
-      targetChips = document.querySelectorAll('.target-chip');
+      elSummary = document.getElementById('summaryText');
       debugConsole = document.getElementById('debugConsole');
 
       attachEvents();
       resizeCanvas();
       drawIdleWave();
       setPhase('idle');
-      updateCIEUPanel();
 
       window.addEventListener('resize', () => {
         resizeCanvas();
@@ -522,58 +379,35 @@
       btnSave.addEventListener('click', saveGenerated);
       btnShare.addEventListener('click', sharePage);
 
-      targetChips.forEach((chip) => {
-        chip.addEventListener('click', () => {
-          targetChips.forEach((c) => c.classList.remove('target-chip--active'));
-          chip.classList.add('target-chip--active');
-          const style = chip.getAttribute('data-style');
-          batState.targetStyle = style;
-          batState.cieu.yStar = style;
-          updateCIEUPanel();
-        });
-      });
-
       elAudioPlayer.addEventListener('play', () => setPhase('playing'));
       elAudioPlayer.addEventListener('pause', () => {
-        if (batState.phase === 'playing') setPhase('cieu');
+        if (batState.phase === 'playing') setPhase('generated');
       });
-      elAudioPlayer.addEventListener('ended', () => setPhase('cieu'));
+      elAudioPlayer.addEventListener('ended', () => setPhase('generated'));
     }
 
+    /***** Phase & UI *****/
     function setPhase(phase) {
       batState.phase = phase;
 
       switch (phase) {
         case 'idle':
-          elStatusText.textContent = '等待录制呼噜声 / 怪声音…';
+          elStatusText.textContent = '等待录制呼噜声 / 口哨 / 敲桌子等怪声音…';
           break;
         case 'recording':
-          elStatusText.textContent = '录制中：请发出你希望“变乐曲”的声音…';
+          elStatusText.textContent = '录制中：请发出你想“炼成乐曲”的声音…';
           break;
-        case 'cieu':
-          elStatusText.textContent = '已构建 CIEU，可反复生成 / 调参。';
-          break;
-        case 'generating':
-          elStatusText.textContent = '基于 y* 生成乐曲（当前为占位逻辑）…';
+        case 'generated':
+          elStatusText.textContent = '已生成乐曲，可以反复播放 / 保存 / 分享。';
           break;
         case 'playing':
-          elStatusText.textContent = '播放当前乐曲…';
+          elStatusText.textContent = '播放当前乐曲中…';
           break;
       }
 
-      elStatusBadges.forEach((badge) => {
+      elStatusBadges.forEach(badge => {
         const p = badge.getAttribute('data-phase');
         badge.classList.toggle('status-badge--active', p === phase);
-      });
-
-      const focusLayers = [];
-      if (phase === 'recording') focusLayers.push('L0');
-      if (phase === 'cieu') focusLayers.push('L1', 'L2', 'L3');
-      if (phase === 'generating' || phase === 'playing') focusLayers.push('L4');
-
-      elBwlTags.forEach((tag) => {
-        const layer = tag.getAttribute('data-layer');
-        tag.classList.toggle('bwl-layer-tag--focus', focusLayers.includes(layer));
       });
 
       updateButtons();
@@ -594,24 +428,21 @@
       btnSave.disabled = !hasGenerated;
       btnShare.disabled = !hasGenerated;
 
-      if (batState.phase === 'recording') {
-        btnRecord.classList.add('recording');
-      } else {
-        btnRecord.classList.remove('recording');
-      }
+      btnRecord.classList.toggle('recording', batState.phase === 'recording');
     }
 
+    /***** Canvas 相关 *****/
     function resizeCanvas() {
-      const rect = elWaveCanvas.getBoundingClientRect();
+      const rect = elCanvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
-      elWaveCanvas.width = rect.width * dpr;
-      elWaveCanvas.height = rect.height * dpr;
-      waveCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      elCanvas.width = rect.width * dpr;
+      elCanvas.height = rect.height * dpr;
+      canvasCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     function drawIdleWave() {
-      const ctx = waveCtx;
-      const { width, height } = elWaveCanvas.getBoundingClientRect();
+      const ctx = canvasCtx;
+      const { width, height } = elCanvas.getBoundingClientRect();
       ctx.clearRect(0, 0, width, height);
       ctx.strokeStyle = '#333';
       ctx.lineWidth = 1;
@@ -625,31 +456,30 @@
     }
 
     function drawCurrentWave() {
-      if (!batState.audioBuffer) {
+      if (!batState.floatData) {
         drawIdleWave();
         return;
       }
-      drawWaveformFromBuffer(batState.audioBuffer);
+      drawWaveformFromFloat(batState.floatData, batState.sampleRate);
     }
 
-    function drawWaveformFromBuffer(buffer) {
-      const ctx = waveCtx;
-      const { width, height } = elWaveCanvas.getBoundingClientRect();
+    function drawWaveformFromFloat(data, sampleRate) {
+      const ctx = canvasCtx;
+      const { width, height } = elCanvas.getBoundingClientRect();
       ctx.clearRect(0, 0, width, height);
-      const channelData = buffer.getChannelData(0);
-      const step = Math.floor(channelData.length / width) || 1;
-      const amp = (height / 2) * 0.85;
 
+      const samplesPerPixel = Math.max(1, Math.floor(data.length / width));
+      const amp = height / 2 * 0.9;
       ctx.beginPath();
       ctx.moveTo(0, height / 2);
 
       for (let x = 0; x < width; x++) {
+        const start = x * samplesPerPixel;
+        const end = Math.min(start + samplesPerPixel, data.length);
         let sum = 0;
-        const start = x * step;
-        const end = Math.min(start + step, channelData.length);
-        for (let i = start; i < end; i++) sum += Math.abs(channelData[i]);
+        for (let i = start; i < end; i++) sum += Math.abs(data[i]);
         const avg = sum / (end - start || 1);
-        const sign = channelData[start] >= 0 ? 1 : -1;
+        const sign = data[start] >= 0 ? 1 : -1;
         const y = height / 2 - avg * amp * sign;
         ctx.lineTo(x, y);
       }
@@ -659,107 +489,10 @@
       ctx.stroke();
     }
 
-    async function startRecording() {
-      try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          showWxMask();
-          return;
-        }
-
-        if (!audioContext) {
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        }
-
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-        micSource = audioContext.createMediaStreamSource(stream);
-        analyser = audioContext.createAnalyser();
-        analyser.fftSize = 2048;
-        micSource.connect(analyser);
-
-        mediaRecorder = new MediaRecorder(stream);
-        recordedChunks = [];
-
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) recordedChunks.push(e.data);
-        };
-
-        mediaRecorder.onstop = handleRecordingStop;
-
-        mediaRecorder.start();
-        startTimer();
-        startDrawing();
-
-        batState.recordedBlob = null;
-        batState.generatedBlob = null;
-        batState.audioBuffer = null;
-        batState.cieu = {
-          x: null,
-          u: null,
-          yStar: batState.targetStyle,
-          yOutcome: null,
-          reward: null
-        };
-        updateCIEUPanel();
-
-        setPhase('recording');
-      } catch (err) {
-        logDebug('录音启动失败: ' + err.message);
-        showWxMask();
-      }
-    }
-
-    function stopAndGenerate() {
-      if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-        stopTimer();
-        stopDrawing();
-        setPhase('generating'); // 先切到 generating，onstop 里完成 CIEU 填写
-      }
-    }
-
-    async function handleRecordingStop() {
-      try {
-        const blob = new Blob(recordedChunks, { type: 'audio/webm' });
-        batState.recordedBlob = blob;
-
-        if (!audioContext) {
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        }
-
-        const arrayBuffer = await blob.arrayBuffer();
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        batState.audioBuffer = audioBuffer;
-        drawWaveformFromBuffer(audioBuffer);
-
-        extractFeaturesToCIEU(audioBuffer);
-        batState.cieu.u = buildInterventionDescription();
-
-        const generatedBlob = await fakeGenerateFromRecorded(blob);
-        batState.generatedBlob = generatedBlob;
-
-        const url = URL.createObjectURL(generatedBlob);
-        elAudioPlayer.src = url;
-        elPlayerLayer.classList.add('show');
-
-        batState.cieu.yOutcome = {
-          source: 'placeholder',
-          desc: '当前用原始录音作为乐曲 yₜ+Δ（占位版）'
-        };
-        const reward = batState.cieu.yStar ? 1.0 : 0.2;
-        batState.cieu.reward = reward;
-
-        updateCIEUPanel();
-        setPhase('cieu');
-      } catch (err) {
-        logDebug('录音处理/生成失败: ' + err.message);
-        setPhase('idle');
-      }
-    }
-
-    function startDrawing() {
+    function startDrawingFromAnalyser() {
+      if (!analyser) return;
       drawing = true;
-      const { width, height } = elWaveCanvas.getBoundingClientRect();
+      const { width, height } = elCanvas.getBoundingClientRect();
       const bufferLength = analyser.fftSize;
       const dataArray = new Uint8Array(bufferLength);
 
@@ -769,22 +502,20 @@
           return;
         }
         analyser.getByteTimeDomainData(dataArray);
-        waveCtx.clearRect(0, 0, width, height);
-        waveCtx.lineWidth = 1.5;
-        waveCtx.strokeStyle = '#4cd964';
-        waveCtx.beginPath();
+        canvasCtx.clearRect(0, 0, width, height);
+        canvasCtx.lineWidth = 1.5;
+        canvasCtx.strokeStyle = '#4cd964';
+        canvasCtx.beginPath();
         const sliceWidth = width / bufferLength;
         let x = 0;
-
         for (let i = 0; i < bufferLength; i++) {
           const v = dataArray[i] / 128.0;
-          const y = (v * height) / 2;
-          if (i === 0) waveCtx.moveTo(x, y);
-          else waveCtx.lineTo(x, y);
+          const y = v * height / 2;
+          if (i === 0) canvasCtx.moveTo(x, y);
+          else canvasCtx.lineTo(x, y);
           x += sliceWidth;
         }
-        waveCtx.stroke();
-
+        canvasCtx.stroke();
         requestAnimationFrame(draw);
       }
 
@@ -795,65 +526,290 @@
       drawing = false;
     }
 
-    function extractFeaturesToCIEU(buffer) {
-      const duration = buffer.duration;
-      const sampleRate = buffer.sampleRate;
-      const data = buffer.getChannelData(0);
+    /***** 录音：ScriptProcessor 版（不依赖 MediaRecorder） *****/
+    async function startRecording() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          showWxMask();
+          return;
+        }
+
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        await audioContext.resume();
+
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        batState.sampleRate = audioContext.sampleRate;
+
+        sourceNode = audioContext.createMediaStreamSource(micStream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        sourceNode.connect(analyser);
+
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
+        muteGain = audioContext.createGain();
+        muteGain.gain.value = 0; // 静音但保持处理
+
+        sourceNode.connect(muteGain);
+        muteGain.connect(processor);
+        processor.connect(audioContext.destination);
+
+        recordedBuffers = [];
+        recordingLength = 0;
+
+        processor.onaudioprocess = (event) => {
+          const input = event.inputBuffer.getChannelData(0);
+          const buffer = new Float32Array(input.length);
+          buffer.set(input);
+          recordedBuffers.push(buffer);
+          recordingLength += buffer.length;
+        };
+
+        startTimer();
+        startDrawingFromAnalyser();
+        setPhase('recording');
+      } catch (err) {
+        logDebug('录音启动失败: ' + err.message);
+        showWxMask();
+      }
+    }
+
+    function stopAndGenerate() {
+      if (batState.phase !== 'recording') return;
+      stopTimer();
+      stopDrawing();
+      stopAudioGraph();
+      // 构建 float32 & WAV
+      if (recordingLength === 0) {
+        setPhase('idle');
+        return;
+      }
+      const merged = new Float32Array(recordingLength);
+      let offset = 0;
+      for (const buf of recordedBuffers) {
+        merged.set(buf, offset);
+        offset += buf.length;
+      }
+      batState.floatData = merged;
+      const wavBlob = encodeWAV(merged, batState.sampleRate);
+      batState.recordedBlob = wavBlob;
+
+      // 这里调用“生成乐曲”逻辑（目前：占位版 = 原录音）
+      generateFromRecording(wavBlob, merged, batState.sampleRate);
+    }
+
+    function stopAudioGraph() {
+      if (processor) {
+        processor.disconnect();
+        processor.onaudioprocess = null;
+        processor = null;
+      }
+      if (muteGain) {
+        muteGain.disconnect();
+        muteGain = null;
+      }
+      if (sourceNode) {
+        sourceNode.disconnect();
+        sourceNode = null;
+      }
+      if (analyser) {
+        analyser.disconnect();
+        analyser = null;
+      }
+      if (micStream) {
+        micStream.getTracks().forEach(t => t.stop());
+        micStream = null;
+      }
+    }
+
+    /***** 核心逻辑：从录音生成乐曲 + CIEU/Y* 内部计算 *****/
+    function generateFromRecording(blob, floatData, sampleRate) {
+      // 1）这里未来可以换成真正的 Bat-mind 波形生成器
+      const generatedBlob = blob; // 占位：直接用原录音
+      batState.generatedBlob = generatedBlob;
+      const url = URL.createObjectURL(generatedBlob);
+      elAudioPlayer.src = url;
+      elPlayerLayer.classList.add('show');
+
+      // 2）从 floatData 提取特征 → 内部构造 CIEU 与 Y*，返回“气质描述”
+      const summary = analyzeAndDescribe(floatData, sampleRate);
+      elSummary.textContent = summary;
+
+      setPhase('generated');
+      drawCurrentWave();
+    }
+
+    // 根据你“Y* 与误差泛函”的想法做一个简单实现：
+    //   x_t: 当前能量/均方根/节奏粗略估计
+    //   y*: 理想状态 = 低能量 + 稳定节奏
+    //   r: 越接近理想，分数越高
+    function analyzeAndDescribe(data, sampleRate) {
+      const n = data.length;
+      if (n === 0) return '录音为空。重新试一次吧。';
+
       let absSum = 0;
+      let sqSum = 0;
       let maxAmp = 0;
-      for (let i = 0; i < data.length; i++) {
+      let zeroCross = 0;
+
+      for (let i = 0; i < n; i++) {
         const v = data[i];
         const av = Math.abs(v);
         absSum += av;
+        sqSum += v * v;
         if (av > maxAmp) maxAmp = av;
+        if (i > 0 && ((data[i - 1] > 0 && v <= 0) || (data[i - 1] < 0 && v >= 0))) {
+          zeroCross++;
+        }
       }
-      const meanAmp = absSum / data.length;
-      const text =
-        'len=' +
-        duration.toFixed(2) +
-        's, sr=' +
-        sampleRate +
-        'Hz, meanAmp=' +
-        meanAmp.toFixed(3) +
-        ', peak=' +
-        maxAmp.toFixed(3);
 
-      batState.cieu.x = {
-        duration,
-        sampleRate,
-        meanAmp,
-        maxAmp,
-        text
+      const meanAmp = absSum / n;
+      const rms = Math.sqrt(sqSum / n);
+      const zcr = zeroCross / n * sampleRate; // 每秒零交叉，粗略代表“频率/躁动度”
+
+      // 定义一个“理想助眠场 Y*”：低振幅 + 低节奏
+      const yStar = {
+        rms: 0.02,
+        zcr: 500
       };
-      elCieuX.textContent = text;
-    }
 
-    function buildInterventionDescription() {
-      const style = batState.targetStyle ? batState.targetStyle : 'none';
-      return 'op=mic_record, style=' + style;
-    }
+      // 计算误差 & 归一化为一个 [0,1] 奖励
+      const er = Math.abs(rms - yStar.rms) / (yStar.rms + 1e-6);
+      const ez = Math.abs(zcr - yStar.zcr) / (yStar.zcr + 1e-6);
+      const e = er * 0.7 + ez * 0.3;
+      const reward = Math.max(0, Math.min(1, 1 - e * 0.5));
 
-    function fakeGenerateFromRecorded(blob) {
-      // 这里将来可以替换为真正的 Bat-mind / 波形因果生成调用
-      return new Promise((resolve) => {
-        setTimeout(() => resolve(blob), 300);
-      });
-    }
-
-    function updateCIEUPanel() {
-      if (batState.cieu.x && batState.cieu.x.text) {
-        elCieuX.textContent = batState.cieu.x.text;
+      // 用简单规则把 (rms, zcr, reward) 映射成文本
+      let mood;
+      if (reward > 0.8) {
+        mood = '这段声音非常接近“助眠理想场”，乐曲整体偏安静、平滑，适合作为入睡背景。';
+      } else if (reward > 0.5) {
+        mood = '这段声音在混乱与秩序之间，生成的乐曲会带一点起伏，有点故事感。';
+      } else if (reward > 0.2) {
+        mood = '原始声音比较躁动，乐曲里会带明显节奏感，像一段不太安分的即兴。';
       } else {
-        elCieuX.textContent = '—';
+        mood = '这是一段非常“野”的原始噪音，乐曲整体会偏实验 / 噪音风格，非常适合作为艺术素材。';
       }
 
-      elCieuU.textContent = batState.cieu.u || '等待操作';
+      const tech =
+        `（内部指标：rms=${rms.toFixed(3)}, peak=${maxAmp.toFixed(3)}, ` +
+        `zcr≈${zcr.toFixed(0)} 次/秒, reward≈${reward.toFixed(2)}）`;
 
-      if (batState.cieu.yStar) {
-        elCieuYStar.textContent = batState.cieu.yStar;
-      } else {
-        elCieuYStar.textContent = '未选择';
+      return mood + ' ' + tech;
+    }
+
+    /***** WAV 编码（单声道）*****/
+    function encodeWAV(samples, sampleRate) {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+
+      function writeString(offset, str) {
+        for (let i = 0; i < str.length; i++) {
+          view.setUint8(offset + i, str.charCodeAt(i));
+        }
       }
 
-      if (batState.cieu.yOutcome && batState.cieu.yOutcome.desc) {
-        elCieuYOutcome.textContent = batState
+      const numChannels = 1;
+      const bytesPerSample = 2;
+      const blockAlign = numChannels * bytesPerSample;
+      const byteRate = sampleRate * blockAlign;
+
+      // RIFF header
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeString(8, 'WAVE');
+
+      // fmt chunk
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true); // PCM
+      view.setUint16(22, numChannels, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, byteRate, true);
+      view.setUint16(32, blockAlign, true);
+      view.setUint16(34, 16, true); // bits per sample
+
+      // data chunk
+      writeString(36, 'data');
+      view.setUint32(40, samples.length * 2, true);
+
+      let offset = 44;
+      for (let i = 0; i < samples.length; i++, offset += 2) {
+        let s = samples[i];
+        s = Math.max(-1, Math.min(1, s));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      }
+
+      return new Blob([view], { type: 'audio/wav' });
+    }
+
+    /***** 计时 *****/
+    function startTimer() {
+      recordingStartTime = performance.now();
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        const elapsed = (performance.now() - recordingStartTime) / 1000;
+        const m = Math.floor(elapsed / 60);
+        const s = Math.floor(elapsed % 60);
+        elTimer.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      }, 200);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+
+    /***** 保存 & 分享 *****/
+    function saveGenerated() {
+      if (!batState.generatedBlob) return;
+      const url = URL.createObjectURL(batState.generatedBlob);
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      a.href = url;
+      a.download = `bat-music-${ts}.wav`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function sharePage() {
+      if (!batState.generatedBlob) return;
+      const shareData = {
+        title: 'Bat-music 实验',
+        text: '我刚刚用呼噜 / 怪声在 Bat-music 里生成了一段乐曲。',
+        url: window.location.href
+      };
+      if (navigator.share) {
+        try {
+          await navigator.share(shareData);
+        } catch (err) {
+          logDebug('分享失败或被取消: ' + err.message);
+        }
+      } else {
+        alert('当前浏览器不支持系统分享，请手动复制地址栏链接。');
+      }
+    }
+
+    /***** 兼容性提示 & 调试 *****/
+    function showWxMask() {
+      const mask = document.getElementById('wxMask');
+      if (mask) mask.classList.add('show');
+    }
+
+    function hideWxMask() {
+      const mask = document.getElementById('wxMask');
+      if (mask) mask.classList.remove('show');
+    }
+
+    function logDebug(msg) {
+      if (!debugConsole) return;
+      debugConsole.style.display = 'block';
+      const time = new Date().toISOString().split('T')[1].split('.')[0];
+      debugConsole.textContent += `[${time}] ${msg}\n`;
+    }
+  </script>
+</body>
+</html>
